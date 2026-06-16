@@ -335,18 +335,32 @@ class DBManager:
             """)
             await conn.commit()
 
-            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо")
-            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо"):
+            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь")
+            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь"):
                 await conn.execute(
                     "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
                 )
-            # Принудительно включаем распознавание для «Моя жаба» и «Жаба инфо»
-            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо')")
+            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо» и «Мой инвентарь»
+            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь')")
+            await conn.commit()
+
+            # Обеспечиваем наличие команды 'inventory' в commands_registry
+            await conn.execute("""
+                INSERT OR IGNORE INTO commands_registry (action_type, name, trigger_regex, default_cooldown)
+                VALUES ('inventory', 'Мой инвентарь', '^мой\\s+инвентарь$', 0)
+            """)
+            # Обеспечиваем наличие шаблона в response_templates
+            async with conn.execute("SELECT 1 FROM response_templates WHERE action_type = 'inventory'") as cursor:
+                if not await cursor.fetchone():
+                    await conn.execute("""
+                        INSERT INTO response_templates (action_type, pattern_name, response_type, regex, db_updates)
+                        VALUES ('inventory', 'Разбор инвентаря', 'success', 'Твой инвентарь:', '{}')
+                    """)
             await conn.commit()
 
 
             # Посев тестовых правил распознавания
-            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо')") as cursor:
+            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо', 'Мой инвентарь')") as cursor:
                 cmd_rows = await cursor.fetchall()
                 cmd_ids = {row["command"]: row["id"] for row in cmd_rows}
 
@@ -392,15 +406,15 @@ class DBManager:
                         sub_id = cursor_sub.lastrowid
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '👑 Статус жабы: (?P<status>classic|классик)', 'Статус = классик (classic)', 'status')
+                            VALUES (?, '👑 Статус жабы: (?P<status>classic|классик)', 'Статус = классик (classic)', 'classic')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '👑 Статус жабы: (?P<status>prime|премиум)', 'Статус = премиум (prime)', 'status')
+                            VALUES (?, '👑 Статус жабы: (?P<status>prime|премиум)', 'Статус = премиум (prime)', 'prime')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '👑 Статус жабы: (?P<status>prime\\+|премиум\\+)', 'Статус = премиум+ (prime+)', 'status')
+                            VALUES (?, '👑 Статус жабы: (?P<status>prime\\+|премиум\\+)', 'Статус = премиум+ (prime+)', 'prime_plus')
                         """, (sub_id,))
 
                         # 5. Состояние
@@ -410,11 +424,11 @@ class DBManager:
                         sub_id = cursor_sub.lastrowid
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '❤️ Состояние: (?P<state>Живая|alive)', 'Состояние = Живая (alive)', 'state')
+                            VALUES (?, '❤️ Состояние: (?P<state>Живая|alive)', 'Состояние = Живая (alive)', 'alive')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '😵 Состояние: (?P<state>❤️🩹\\s*Нужна реанимация|injured)', 'Состояние = Нужна реанимация (injured)', 'state')
+                            VALUES (?, '😵 Состояние: (?P<state>❤️🩹\\s*Нужна реанимация|injured)', 'Состояние = Нужна реанимация (injured)', 'injured')
                         """, (sub_id,))
 
                         # 6. Букашки
@@ -434,15 +448,15 @@ class DBManager:
                         sub_id = cursor_sub.lastrowid
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '🧙 Класс: (?P<class>Авантюрист\\s+[IVXLCDM]+)', 'Класс = {class} (adventurer)', 'class')
+                            VALUES (?, '🧙 Класс: (?P<class>Авантюрист\\s+[IVXLCDM]+)', 'Класс = {class} (adventurer)', 'adventurer')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '👷 Класс: (?P<class>Ремесленник\\s+[IVXLCDM]+)', 'Класс = {class} (worker)', 'class')
+                            VALUES (?, '👷 Класс: (?P<class>Ремесленник\\s+[IVXLCDM]+)', 'Класс = {class} (worker)', 'worker')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '🦹 Класс: (?P<class>Ассасин\\s+[IVXLCDM]+)', 'Класс = {class} (assassin)', 'class')
+                            VALUES (?, '🦹 Класс: (?P<class>Ассасин\\s+[IVXLCDM]+)', 'Класс = {class} (assassin)', 'assassin')
                         """, (sub_id,))
 
                         # 8. Настроение
@@ -452,15 +466,15 @@ class DBManager:
                         sub_id = cursor_sub.lastrowid
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '🙂 Настроение: (?P<mood>Отличное)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'mood')
+                            VALUES (?, '🙂 Настроение: (?P<mood>Отличное)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'excellent')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '😐 Настроение: (?P<mood>Нормальное)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'mood')
+                            VALUES (?, '😐 Настроение: (?P<mood>Нормальное)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'normal')
                         """, (sub_id,))
                         await conn.execute("""
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
-                            VALUES (?, '😞 Настроение: (?P<mood>Плохое)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'mood')
+                            VALUES (?, '😞 Настроение: (?P<mood>Плохое)\\s*\\((?P<mood_val>\\d+)\\)', 'Настроение = {mood} ({mood_val})', 'bad')
                         """, (sub_id,))
 
                         # 9. Победы
@@ -632,6 +646,10 @@ class DBManager:
                             INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
                             VALUES (?, '(?:💃🏻|💃): Жаба уже тусила', 'Жаба уже тусила (cooldown)', 'cooldown')
                         """, (sub_id,))
+                        await conn.execute("""
+                            INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                            VALUES (?, '(?:💃🏻|💃): Жаба готовится к тусе', 'Жаба готовится к тусе (preparing)', 'preparing')
+                        """, (sub_id,))
 
                         # 7. Брак
                         cursor_sub = await conn.execute(
@@ -679,6 +697,40 @@ class DBManager:
                             VALUES (?, '🗺: Жаба батрачит в (?P<location>.+)', 'Батрачит в {location} (working_at_location)', 'working_at_location')
                         """, (sub_id,))
 
+            if "Мой инвентарь" in cmd_ids:
+                cmd_id = cmd_ids["Мой инвентарь"]
+                async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (cmd_id,)) as cursor:
+                    cnt_row = await cursor.fetchone()
+                    if cnt_row and cnt_row["cnt"] == 0:
+                        rules_data = [
+                            ("Леденцы", "🍭\\s*Леденцы:\\s*(?P<inv_lollipop>\\d+)", "Леденцы = {inv_lollipop}", "inv_lollipop"),
+                            ("Аптечки", "💊\\s*Аптечки:\\s*(?P<inv_bandages>\\d+)", "Аптечки = {inv_bandages}", "inv_bandages"),
+                            ("Пивас", "🍻\\s*Пивас:\\s*(?P<inv_beer>[^\\n\\r]+)", "Пивас = {inv_beer}", "inv_beer"),
+                            ("Стрекозюля удачи", "🦟\\s*Стрекозюля удачи:\\s*(?P<inv_dragonfly>[^\\n\\r]+)", "Стрекозюля = {inv_dragonfly}", "inv_dragonfly"),
+                            ("Карта болота", "🗺\\s*Карта болота:\\s*(?P<inv_map>[^\\n\\r]+)", "Карта = {inv_map}", "inv_map"),
+                            ("Изолента", "🧿\\s*Изолента:\\s*(?P<inv_tape>\\d+)", "Изолента = {inv_tape}", "inv_tape"),
+                            ("Жабули для банды", "🐸\\s*Жабули для банды:\\s*(?P<inv_gang_frogs>\\d+)(?:/\\d+)?", "Жабули = {inv_gang_frogs}/10", "inv_gang_frogs"),
+                            ("Капсула опыта", "🔋\\s*Капсула опыта:\\s*(?P<inv_exp_capsule>\\d+)", "Капсула опыта = {inv_exp_capsule}", "inv_exp_capsule"),
+                            ("Пропуск", "🔖\\s*Пропуск(?:[^:]*):\\s*(?P<eq_pass>\\d+)(?:/\\d+)?", "Пропуск = {eq_pass}/1", "eq_pass"),
+                            ("Отмычка", "🪛\\s*Отмычка(?:[^:]*):\\s*(?P<eq_lockpick>\\d+)(?:/\\d+)?", "Отмычка = {eq_lockpick}/10", "eq_lockpick"),
+                            ("Батарейка", "🔋\\s*Батарейка(?:[^:]*):\\s*(?P<eq_battery>\\d+)(?:/\\d+)?", "Батарейка = {eq_battery}/10", "eq_battery"),
+                            ("🧩", "🧩:\\s*(?P<cr_puzzle>\\d+)(?:/\\d+)?.*", "Пазл = {cr_puzzle}/10", "cr_puzzle"),
+                            ("🔗", "🔗:\\s*(?P<cr_link>\\d+)(?:/\\d+)?.*", "Звено = {cr_link}/10", "cr_link"),
+                            ("🪨", "🪨:\\s*(?P<cr_stone>\\d+)(?:/\\d+)?.*", "Камень = {cr_stone}/10", "cr_stone"),
+                            ("🎭", "🎭:\\s*(?P<cr_mask>\\d+)(?:/\\d+)?.*", "Маска = {cr_mask}/10", "cr_mask"),
+                            ("📃", "📃:\\s*(?P<cr_paper>\\d+)(?:/\\d+)?.*", "Бумага = {cr_paper}/10", "cr_paper"),
+                            ("⚡️", "⚡️?:\\s*(?P<cr_lightning>\\d+)(?:/\\d+)?.*", "Молния = {cr_lightning}/10", "cr_lightning"),
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+
             await conn.commit()
             
         # Посев дефолтных правил, если таблицы пусты или не все команды на месте
@@ -688,6 +740,108 @@ class DBManager:
                 if row and row["cnt"] < 75:
                     logger.info("База знаний пуста или не обновлена. Запускаем наполнение дефолтными правилами (seeding)...")
                     await self.seed_default_knowledge_base()
+
+        # Миграция: обновление уникальных имен для "Моя жаба" и добавление новой вариации для "Туса"
+        async with self._connect() as conn:
+            logger.info("Запуск миграции правил распознавания...")
+            # 1. Сделать уникальные имена для "Моя жаба" реально уникальными
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'classic' WHERE pattern = '👑 Статус жабы: (?P<status>classic|классик)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'prime' WHERE pattern = '👑 Статус жабы: (?P<status>prime|премиум)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'prime_plus' WHERE pattern = '👑 Статус жабы: (?P<status>prime\\+|премиум\\+)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'alive' WHERE pattern = '❤️ Состояние: (?P<state>Живая|alive)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'injured' WHERE pattern = '😵 Состояние: (?P<state>❤️🩹\\s*Нужна реанимация|injured)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'adventurer' WHERE pattern = '🧙 Класс: (?P<class>Авантюрист\\s+[IVXLCDM]+)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'worker' WHERE pattern = '👷 Класс: (?P<class>Ремесленник\\s+[IVXLCDM]+)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'assassin' WHERE pattern = '🦹 Класс: (?P<class>Ассасин\\s+[IVXLCDM]+)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'excellent' WHERE pattern = '🙂 Настроение: (?P<mood>Отличное)\\s*\\((?P<mood_val>\\d+)\\)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'normal' WHERE pattern = '😐 Настроение: (?P<mood>Нормальное)\\s*\\((?P<mood_val>\\d+)\\)'")
+            await conn.execute("UPDATE recognition_rules SET variable_name = 'bad' WHERE pattern = '😞 Настроение: (?P<mood>Плохое)\\s*\\((?P<mood_val>\\d+)\\)'")
+
+            # 2. Добавление новой вариации для тусовки
+            async with conn.execute("""
+                SELECT s.id 
+                FROM recognition_subcommands s
+                JOIN monitored_commands c ON s.command_id = c.id
+                WHERE c.command = 'Жаба инфо' AND s.name = 'Туса'
+            """) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    sub_id = row["id"]
+                    # Проверяем, существует ли уже это правило
+                    async with conn.execute(
+                        "SELECT id FROM recognition_rules WHERE subcommand_id = ? AND pattern = ?",
+                        (sub_id, '(?:💃🏻|💃): Жаба готовится к тусе')
+                    ) as check_cursor:
+                        if not await check_cursor.fetchone():
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, '(?:💃🏻|💃): Жаба готовится к тусе', 'Жаба готовится к тусе (preparing)', 'preparing')
+                            """, (sub_id,))
+                            logger.info("Миграция: Добавлено новое правило для тусы.")
+
+            # 3. Добавление подкоманд и правил для "Мой инвентарь" (на случай если база уже создана или имеет старый формат)
+            async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Мой инвентарь'") as cursor:
+                inv_row = await cursor.fetchone()
+                if inv_row:
+                    inv_cmd_id = inv_row["id"]
+                    # Проверяем, есть ли старые/неверные подкомандные структуры (например, "Инвентарь", "Ограбление", "Крафт")
+                    async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ? AND name IN ('Инвентарь', 'Ограбление', 'Крафт')", (inv_cmd_id,)) as check_sub_cursor:
+                        has_old_layout = (await check_sub_cursor.fetchone())["cnt"] > 0
+                        
+                    async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (inv_cmd_id,)) as sub_cursor:
+                        inv_sub_cnt = (await sub_cursor.fetchone())["cnt"]
+                        
+                    # Проверяем, нужно ли обновить правила крафта (добавить .* в конец)
+                    async with conn.execute("""
+                        SELECT r.pattern FROM recognition_rules r
+                        JOIN recognition_subcommands s ON r.subcommand_id = s.id
+                        WHERE s.command_id = ? AND s.name = '🧩'
+                    """, (inv_cmd_id,)) as craft_cursor:
+                        craft_row = await craft_cursor.fetchone()
+                        needs_craft_update = craft_row and not craft_row["pattern"].endswith(".*")
+                        
+                    if inv_sub_cnt == 0 or has_old_layout or needs_craft_update:
+                        logger.info("Миграция: Пересоздание подкоманд и правил для 'Мой инвентарь'...")
+                        await conn.execute("DELETE FROM recognition_subcommands WHERE command_id = ?", (inv_cmd_id,))
+                        
+                        rules_data = [
+                            ("Леденцы", "🍭\\s*Леденцы:\\s*(?P<inv_lollipop>\\d+)", "Леденцы = {inv_lollipop}", "inv_lollipop"),
+                            ("Аптечки", "💊\\s*Аптечки:\\s*(?P<inv_bandages>\\d+)", "Аптечки = {inv_bandages}", "inv_bandages"),
+                            ("Пивас", "🍻\\s*Пивас:\\s*(?P<inv_beer>[^\\n\\r]+)", "Пивас = {inv_beer}", "inv_beer"),
+                            ("Стрекозюля удачи", "🦟\\s*Стрекозюля удачи:\\s*(?P<inv_dragonfly>[^\\n\\r]+)", "Стрекозюля = {inv_dragonfly}", "inv_dragonfly"),
+                            ("Карта болота", "🗺\\s*Карта болота:\\s*(?P<inv_map>[^\\n\\r]+)", "Карта = {inv_map}", "inv_map"),
+                            ("Изолента", "🧿\\s*Изолента:\\s*(?P<inv_tape>\\d+)", "Изолента = {inv_tape}", "inv_tape"),
+                            ("Жабули для банды", "🐸\\s*Жабули для банды:\\s*(?P<inv_gang_frogs>\\d+)(?:/\\d+)?", "Жабули = {inv_gang_frogs}/10", "inv_gang_frogs"),
+                            ("Капсула опыта", "🔋\\s*Капсула опыта:\\s*(?P<inv_exp_capsule>\\d+)", "Капсула опыта = {inv_exp_capsule}", "inv_exp_capsule"),
+                            ("Пропуск", "🔖\\s*Пропуск(?:[^:]*):\\s*(?P<eq_pass>\\d+)(?:/\\d+)?", "Пропуск = {eq_pass}/1", "eq_pass"),
+                            ("Отмычка", "🪛\\s*Отмычка(?:[^:]*):\\s*(?P<eq_lockpick>\\d+)(?:/\\d+)?", "Отмычка = {eq_lockpick}/10", "eq_lockpick"),
+                            ("Батарейка", "🔋\\s*Батарейка(?:[^:]*):\\s*(?P<eq_battery>\\d+)(?:/\\d+)?", "Батарейка = {eq_battery}/10", "eq_battery"),
+                            ("🧩", "🧩:\\s*(?P<cr_puzzle>\\d+)(?:/\\d+)?.*", "Пазл = {cr_puzzle}/10", "cr_puzzle"),
+                            ("🔗", "🔗:\\s*(?P<cr_link>\\d+)(?:/\\d+)?.*", "Звено = {cr_link}/10", "cr_link"),
+                            ("🪨", "🪨:\\s*(?P<cr_stone>\\d+)(?:/\\d+)?.*", "Камень = {cr_stone}/10", "cr_stone"),
+                            ("🎭", "🎭:\\s*(?P<cr_mask>\\d+)(?:/\\d+)?.*", "Маска = {cr_mask}/10", "cr_mask"),
+                            ("📃", "📃:\\s*(?P<cr_paper>\\d+)(?:/\\d+)?.*", "Бумага = {cr_paper}/10", "cr_paper"),
+                            ("⚡️", "⚡️?:\\s*(?P<cr_lightning>\\d+)(?:/\\d+)?.*", "Молния = {cr_lightning}/10", "cr_lightning"),
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (inv_cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+                        logger.info("Миграция: Подкоманды и правила для 'Мой инвентарь' успешно пересозданы.")
+            
+            # --- ЧИСТКА ИМЕН В ACCOUNTS ---
+            try:
+                await conn.execute("UPDATE accounts SET name = TRIM(SUBSTR(name, 11)) WHERE name LIKE 'Имя жабы:%'")
+                logger.info("Проведена очистка префиксов 'Имя жабы:' в таблице accounts.")
+            except Exception as e:
+                logger.error(f"Ошибка при очистке имен в accounts: {e}")
+
+            await conn.commit()
 
         # Инициализация новой БД распознавания
         rec_path = self.db_path.parent / "recognition.db"
@@ -725,7 +879,24 @@ class DBManager:
                     mood TEXT,
                     wins INTEGER,
                     losses INTEGER,
-                    arenas INTEGER
+                    arenas INTEGER,
+                    inv_lollipop TEXT,
+                    inv_bandages TEXT,
+                    inv_beer TEXT,
+                    inv_dragonfly TEXT,
+                    inv_map TEXT,
+                    inv_tape TEXT,
+                    inv_gang_frogs TEXT,
+                    inv_exp_capsule TEXT,
+                    eq_pass TEXT,
+                    eq_lockpick TEXT,
+                    eq_battery TEXT,
+                    cr_puzzle TEXT,
+                    cr_link TEXT,
+                    cr_stone TEXT,
+                    cr_mask TEXT,
+                    cr_paper TEXT,
+                    cr_lightning TEXT
                 );
             """)
             await r_conn.commit()
@@ -743,7 +914,24 @@ class DBManager:
                 ("mood", "TEXT"),
                 ("wins", "INTEGER"),
                 ("losses", "INTEGER"),
-                ("arenas", "INTEGER")
+                ("arenas", "INTEGER"),
+                ("inv_lollipop", "TEXT"),
+                ("inv_bandages", "TEXT"),
+                ("inv_beer", "TEXT"),
+                ("inv_dragonfly", "TEXT"),
+                ("inv_map", "TEXT"),
+                ("inv_tape", "TEXT"),
+                ("inv_gang_frogs", "TEXT"),
+                ("inv_exp_capsule", "TEXT"),
+                ("eq_pass", "TEXT"),
+                ("eq_lockpick", "TEXT"),
+                ("eq_battery", "TEXT"),
+                ("cr_puzzle", "TEXT"),
+                ("cr_link", "TEXT"),
+                ("cr_stone", "TEXT"),
+                ("cr_mask", "TEXT"),
+                ("cr_paper", "TEXT"),
+                ("cr_lightning", "TEXT")
             ]
             async with r_conn.execute("PRAGMA table_info(toad_states)") as cursor:
                 existing_cols = {r["name"] for r in await cursor.fetchall()}
@@ -753,6 +941,14 @@ class DBManager:
                         await r_conn.execute(f"ALTER TABLE toad_states ADD COLUMN {col_name} {col_type}")
                     except Exception as e:
                         logger.error(f"Ошибка при добавлении колонки {col_name} в toad_states: {e}")
+            
+            # --- ЧИСТКА ИМЕН В TOAD_STATES ---
+            try:
+                await r_conn.execute("UPDATE toad_states SET name = TRIM(SUBSTR(name, 11)) WHERE name LIKE 'Имя жабы:%'")
+                logger.info("Проведена очистка префиксов 'Имя жабы:' в таблице toad_states.")
+            except Exception as e:
+                logger.error(f"Ошибка при очистке имен в toad_states: {e}")
+
             await r_conn.commit()
                     
         logger.info("Инициализация базы данных успешно завершена.")
@@ -777,6 +973,7 @@ class DBManager:
                 ("stats", "Анкета", r"^моя\s+жаба$", 0),
                 ("feed", "Обычное кормление", r"^покормить\s+жабу$", 43200),
                 ("fattening", "Принудительный откорм", r"^откормить\s+жабу$", 14400),
+                ("inventory", "Мой инвентарь", r"^мой\s+инвентарь$", 0),
             ]
             
             
@@ -863,7 +1060,6 @@ class DBManager:
                     VALUES (?, ?, ?, ?)
                 """, (action, name, trigger, cd))
                 
-            # 2. Заполняем шаблоны общих ответов
             default_responses = [
                 ("work", "Успешная отправка на работу", "success", r"(?:жаба|она)\s+(?:отправилась|пошла)\s+на\s+работу\s+в\s+(?P<work_place>[а-яА-Я]+)[\s\S]+через\s+(?P<hours>\d+)\s+(?:часа|часов|час|ч)", json.dumps({"status": "working", "work_info": "💼 На работе в {work_place}"})),
                 ("work", "Жаба уже работает", "duplicate", r"жаба\s+уже\s+работает\s+в\s+(?P<work_place>[а-яА-Я]+)", json.dumps({"status": "working", "work_info": "💼 На работе в {work_place}"})),
@@ -875,6 +1071,11 @@ class DBManager:
                 ("feed", "Кулдаун кормления", "cooldown", r"покормить\s+жабу\s+можно\s+через\s+(?P<hours>\d+)\s*ч:(?P<minutes>\d+)\s*мин", json.dumps({"feed_info": "well-fed"})),
                 ("stats", "Разбор анкеты", "success", r"(?:🐸|Имя жабы)[\s\S]*?(?:Уровень|Сытость|Атака|Здоровье|Букашек|Опыт)", json.dumps({}))
             ]
+            
+            # Добавим инвентарь принудительно, если не пересоздаются
+            default_responses.append(
+                ("inventory", "Разбор инвентаря", "success", r"Твой инвентарь:", json.dumps({}))
+            )
             for action, name, rtype, regex, updates in default_responses:
                 await conn.execute("""
                     INSERT INTO response_templates (action_type, pattern_name, response_type, regex, db_updates)
@@ -1008,7 +1209,8 @@ class DBManager:
                 return [dict(row) for row in rows]
 
     async def get_all_accounts(self) -> List[Dict[str, Any]]:
-        """Получение абсолютно всех аккаунтов (активных и неактивных)"""
+        """Получение абсолютно всех аккаунтов (активных и неактивных) с присоединенными данными распознавания"""
+        # 1. Получаем аккаунты из bot.db
         async with self._connect() as conn:
             async with conn.execute("""
                 SELECT a.*, s.auto_feed, s.auto_work, s.auto_arena, s.auto_dungeon, 
@@ -1018,7 +1220,39 @@ class DBManager:
                 WHERE a.vk_id > 0
             """) as cursor:
                 rows = await cursor.fetchall()
-                return [dict(row) for row in rows]
+                accounts = [dict(row) for row in rows]
+
+        # 2. Получаем состояния из recognition.db
+        toad_states = {}
+        try:
+            async with self._connect_rec() as r_conn:
+                async with r_conn.execute("SELECT * FROM toad_states") as cursor:
+                    r_rows = await cursor.fetchall()
+                    for r_row in r_rows:
+                        toad_states[r_row["vk_id"]] = dict(r_row)
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке состояний жаб из recognition.db: {e}")
+
+        # 3. Объединяем данные
+        for acc in accounts:
+            vk_id = acc["vk_id"]
+            state_data = toad_states.get(vk_id)
+            if state_data:
+                lu = state_data.get("last_updated")
+                if lu:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.strptime(lu, "%d.%m.%Y %H:%M:%S")
+                        state_data["last_updated_iso"] = dt.strftime("%Y-%m-%dT%H:%M:%S")
+                    except Exception:
+                        state_data["last_updated_iso"] = None
+                else:
+                    state_data["last_updated_iso"] = None
+                acc["toad_state"] = state_data
+            else:
+                acc["toad_state"] = None
+
+        return accounts
 
     async def update_settings(self, vk_id: int, updates: Dict[str, Any]) -> None:
         """Обновление автоматизационных настроек аккаунта"""
@@ -1059,8 +1293,20 @@ class DBManager:
         """Универсальное обновление любых полей аккаунта по vk_id"""
         if not fields:
             return
-        set_clause = ", ".join(f"{k} = ?" for k in fields.keys())
-        params = list(fields.values())
+        
+        # Получаем реальные колонки таблицы accounts из PRAGMA
+        async with self._connect() as conn:
+            async with conn.execute("PRAGMA table_info(accounts)") as cursor:
+                rows = await cursor.fetchall()
+                allowed_cols = {row["name"] for row in rows}
+                
+        # Оставляем только существующие колонки
+        filtered_fields = {k: v for k, v in fields.items() if k in allowed_cols}
+        if not filtered_fields:
+            return
+            
+        set_clause = ", ".join(f"{k} = ?" for k in filtered_fields.keys())
+        params = list(filtered_fields.values())
         params.append(vk_id)
         async with self._connect() as conn:
             await conn.execute(f"UPDATE accounts SET {set_clause} WHERE vk_id = ?", tuple(params))
@@ -1346,11 +1592,11 @@ class DBManager:
         logger.info(f"Добавлена отслеживаемая команда: {cmd_clean}")
 
     async def delete_monitored_command(self, command_id: int) -> None:
-        """Удаление отслеживаемой команды по ID (каскадно удаляет вариации)"""
+        """Очистка накопленных ответов для отслеживаемой команды по ID (убирает сигнал об ошибке из отладки)"""
         async with self._connect() as conn:
-            await conn.execute("DELETE FROM monitored_commands WHERE id = ?", (command_id,))
+            await conn.execute("DELETE FROM monitored_responses WHERE command_id = ?", (command_id,))
             await conn.commit()
-        logger.info(f"Удалена отслеживаемая команда ID: {command_id}")
+        logger.info(f"Очищены накопленные ответы для отслеживаемой команды ID: {command_id}")
 
     async def clear_monitored_responses(self) -> None:
         """Очищает все сохраненные ответы Жабабота (сброс отчета)"""
@@ -1360,7 +1606,15 @@ class DBManager:
         logger.info("Все ответы монитора успешно очищены.")
 
     async def save_toad_state(self, vk_id: int, data: dict) -> None:
-        """Сохраняет распознанное состояние жабы в recognition.db"""
+        """Сохраняет распознанное состояние жабы в recognition.db, только если аккаунт добавлен в бот"""
+        # Проверяем, добавлен ли аккаунт
+        async with self._connect() as conn:
+            async with conn.execute("SELECT 1 FROM accounts WHERE vk_id = ?", (vk_id,)) as cursor:
+                exists = await cursor.fetchone()
+        if not exists:
+            logger.debug(f"[Save Toad State] Пропущен vk_id {vk_id}, так как аккаунт не добавлен в систему")
+            return
+
         from datetime import datetime, timezone, timedelta
         msk_now_str = datetime.now(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M:%S")
         
@@ -1372,8 +1626,11 @@ class DBManager:
                     fattening, fattening_cooldown, dungeon_info, dungeon_cooldown,
                     arena_info, arena_cooldown, party_info, marriage_info, spouse_1, spouse_2,
                     robbery_info, map_info, location_name,
-                    name, level, satiety_cur, satiety_max, status, state, bugs, class, mood, wins, losses, arenas
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    name, level, satiety_cur, satiety_max, status, state, bugs, class, mood, wins, losses, arenas,
+                    inv_lollipop, inv_bandages, inv_beer, inv_dragonfly, inv_map, inv_tape, inv_gang_frogs, inv_exp_capsule,
+                    eq_pass, eq_lockpick, eq_battery,
+                    cr_puzzle, cr_link, cr_stone, cr_mask, cr_paper, cr_lightning
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(vk_id) DO UPDATE SET
                     last_updated = excluded.last_updated,
                     work_info = COALESCE(excluded.work_info, toad_states.work_info),
@@ -1404,7 +1661,24 @@ class DBManager:
                     mood = COALESCE(excluded.mood, toad_states.mood),
                     wins = COALESCE(excluded.wins, toad_states.wins),
                     losses = COALESCE(excluded.losses, toad_states.losses),
-                    arenas = COALESCE(excluded.arenas, toad_states.arenas)
+                    arenas = COALESCE(excluded.arenas, toad_states.arenas),
+                    inv_lollipop = COALESCE(excluded.inv_lollipop, toad_states.inv_lollipop),
+                    inv_bandages = COALESCE(excluded.inv_bandages, toad_states.inv_bandages),
+                    inv_beer = COALESCE(excluded.inv_beer, toad_states.inv_beer),
+                    inv_dragonfly = COALESCE(excluded.inv_dragonfly, toad_states.inv_dragonfly),
+                    inv_map = COALESCE(excluded.inv_map, toad_states.inv_map),
+                    inv_tape = COALESCE(excluded.inv_tape, toad_states.inv_tape),
+                    inv_gang_frogs = COALESCE(excluded.inv_gang_frogs, toad_states.inv_gang_frogs),
+                    inv_exp_capsule = COALESCE(excluded.inv_exp_capsule, toad_states.inv_exp_capsule),
+                    eq_pass = COALESCE(excluded.eq_pass, toad_states.eq_pass),
+                    eq_lockpick = COALESCE(excluded.eq_lockpick, toad_states.eq_lockpick),
+                    eq_battery = COALESCE(excluded.eq_battery, toad_states.eq_battery),
+                    cr_puzzle = COALESCE(excluded.cr_puzzle, toad_states.cr_puzzle),
+                    cr_link = COALESCE(excluded.cr_link, toad_states.cr_link),
+                    cr_stone = COALESCE(excluded.cr_stone, toad_states.cr_stone),
+                    cr_mask = COALESCE(excluded.cr_mask, toad_states.cr_mask),
+                    cr_paper = COALESCE(excluded.cr_paper, toad_states.cr_paper),
+                    cr_lightning = COALESCE(excluded.cr_lightning, toad_states.cr_lightning)
             """, (
                 vk_id, msk_now_str,
                 data.get("work_info"), data.get("work_cooldown"),
@@ -1421,7 +1695,14 @@ class DBManager:
                 data.get("status"), data.get("state"),
                 data.get("bugs"), data.get("class"),
                 data.get("mood"), data.get("wins"),
-                data.get("losses"), data.get("arenas")
+                data.get("losses"), data.get("arenas"),
+                data.get("inv_lollipop"), data.get("inv_bandages"),
+                data.get("inv_beer"), data.get("inv_dragonfly"),
+                data.get("inv_map"), data.get("inv_tape"),
+                data.get("inv_gang_frogs"), data.get("inv_exp_capsule"),
+                data.get("eq_pass"), data.get("eq_lockpick"), data.get("eq_battery"),
+                data.get("cr_puzzle"), data.get("cr_link"), data.get("cr_stone"),
+                data.get("cr_mask"), data.get("cr_paper"), data.get("cr_lightning")
             ))
             await conn.commit()
 
@@ -1450,6 +1731,15 @@ class DBManager:
         if command_name == "Моя жаба":
             from src.utils.toad_info_parser import parse_my_toad
             parsed_data = parse_my_toad(text)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.save_toad_state(player_vk_id, parsed_data)
+                return "Да"
+            return "Нет"
+
+        if command_name == "Мой инвентарь":
+            from src.utils.toad_info_parser import parse_inventory
+            parsed_data = parse_inventory(text)
             if parsed_data is not None:
                 if player_vk_id is not None:
                     await self.save_toad_state(player_vk_id, parsed_data)

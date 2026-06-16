@@ -7,15 +7,15 @@ from vkbottle_types.events import UserEventType
 from vkbottle_types.events.user_events import MessageEdit
 from src.database.db_manager import DBManager
 from src.utils.knowledge_base import KnowledgeBase
-from src.utils.toad_info_parser import parse_toad_info
+from src.utils.toad_info_parser import parse_toad_info, parse_my_toad, parse_inventory
 
 logger = logging.getLogger("toadbot.vk.handlers")
 
 def parse_toad_profile(text: str) -> Dict[str, Any]:
     parsed = {}
     
-    # Имя
-    name_match = re.search(r"🐸\s*(?:Имя:)?\s*([^\n\r]+)", text)
+    # Имя (очищаем от "Имя жабы:" или "Имя:")
+    name_match = re.search(r"🐸\s*(?:Имя жабы|Имя)?[:\s]*([^\n\r]+)", text, re.I)
     if name_match:
         name_val = name_match.group(1).strip()
         name_val = re.sub(r"\[id\d+\|([^\]]+)\]", r"\1", name_val)
@@ -41,10 +41,10 @@ def parse_toad_profile(text: str) -> Dict[str, Any]:
             pass
 
     # Настроение
-    mood_match = re.search(r"👻\s*(?:Настроение)?[:\s]*(\d+)", text, re.I)
+    mood_match = re.search(r"Настроение:\s*(?:[^\w\s]*\s*)?([а-яА-ЯёЁ\s]+)\s*\((\d+)\)", text, re.I)
     if mood_match:
         try:
-            parsed["mood"] = int(mood_match.group(1))
+            parsed["mood"] = int(mood_match.group(2))
         except ValueError:
             pass
 
@@ -62,6 +62,35 @@ def parse_toad_profile(text: str) -> Dict[str, Any]:
     pos_match = re.search(r"(?:Позиция|Должность)[:\s]*([^\n\r]+)", text, re.I)
     if pos_match:
         parsed["positions"] = pos_match.group(1).strip()
+
+    # Статус
+    status_match = re.search(r"Статус жабы:\s*(classic|prime|prime\+|классик|премиум|премиум\+)", text, re.I)
+    if status_match:
+        status_val = status_match.group(1).strip().lower()
+        if status_val in ("prime", "prime+", "премиум", "премиум+"):
+            parsed["is_prime"] = 1
+        else:
+            parsed["is_prime"] = 0
+            
+        if status_val in ("classic", "классик"):
+            parsed["status_text"] = "classic"
+        elif status_val in ("prime", "премиум"):
+            parsed["status_text"] = "prime"
+        elif status_val in ("prime+", "премиум+"):
+            parsed["status_text"] = "prime+"
+        else:
+            parsed["status_text"] = status_val
+
+    # Состояние
+    state_match = re.search(r"Состояние:\s*(?:[^\w\s]*\s*)?(Живая|alive|Нужна реанимация|injured)", text, re.I)
+    if state_match:
+        state_val = state_match.group(1).strip().lower()
+        if state_val in ("alive", "живая"):
+            parsed["state_text"] = "alive"
+        elif "реанимация" in state_val or "injured" in state_val:
+            parsed["state_text"] = "injured"
+        else:
+            parsed["state_text"] = state_val
 
     return parsed
 
@@ -184,6 +213,7 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                         if fut and not fut.done():
                             logger.info(f"[{vk_id}] Перехватили ответ Жабабота для теста фраз: {text[:80]}")
                             fut.set_result(text)
+                            return
                 except Exception as ex:
                     logger.error(f"Ошибка перехвата ответа для теста фраз: {ex}", exc_info=True)
 
@@ -242,8 +272,26 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                         
                         if action_type == KnowledgeBase.ACTION_INFO:
                             parsed_fields = parse_toad_info(text)
+                            if parsed_fields:
+                                # Сохраняем полное состояние в recognition.db.toad_states
+                                await db.save_toad_state(vk_id, parsed_fields)
+                                # Фильтруем поля для основной таблицы accounts (bot.db) во избежание OperationalError
+                                allowed_columns = {
+                                    "work_info", "feed_info", "fattening", "dungeon_info", 
+                                    "arena_info", "party_info", "marriage_info", "robbery_info", "map_info"
+                                }
+                                parsed_fields = {k: v for k, v in parsed_fields.items() if k in allowed_columns}
                         elif action_type == KnowledgeBase.ACTION_STATS:
                             parsed_fields = parse_toad_profile(text)
+                            # Извлекаем и сохраняем полную анкету в recognition.db.toad_states
+                            parsed_my_toad_data = parse_my_toad(text)
+                            if parsed_my_toad_data:
+                                await db.save_toad_state(vk_id, parsed_my_toad_data)
+                        elif action_type == KnowledgeBase.ACTION_INVENTORY:
+                            parsed_fields = parse_inventory(text)
+                            if parsed_fields:
+                                await db.save_toad_state(vk_id, parsed_fields)
+                                parsed_fields = {}
                         else:
                             # Стандартный парсинг из регулярного выражения Базы Знаний
                             for col, rule in db_updates.items():

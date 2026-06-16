@@ -83,6 +83,9 @@ class ImportCommandsSchema(BaseModel):
 class RecognitionStatusSchema(BaseModel):
     status: str
 
+class ToggleRecognitionSchema(BaseModel):
+    in_recognition: int
+
 class TestParseSchema(BaseModel):
     command: str
     text: str
@@ -674,8 +677,7 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
                         parsed_fields[col] = rule
                         
             if parsed_fields:
-                logger.info(f"[Тест фраз] Обновление характеристик в БД: {parsed_fields}")
-                await db.update_account_fields(vk_id, parsed_fields)
+                logger.info(f"[Тест фраз] Спарсенные характеристики (без обновления БД): {parsed_fields}")
                 
             await db.log_action(vk_id, "game_event", f"[Тест фраз] Ответ Жабабота успешно распознан: {response_text}")
             
@@ -835,7 +837,7 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
             raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
     @app.post("/api/monitor/commands/{command_id}/recognition/toggle")
-    async def toggle_monitored_command_in_recognition(command_id: int, payload: RecognitionStatusSchema, username: str = Depends(authenticate)):
+    async def toggle_monitored_command_in_recognition(command_id: int, payload: ToggleRecognitionSchema, username: str = Depends(authenticate)):
         """Добавление/удаление команды из вкладки Распознавание"""
         try:
             await db.toggle_monitored_command_in_recognition(command_id, payload.in_recognition)
@@ -958,6 +960,14 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
             if cmd_real_name == "Жаба инфо":
                 from src.utils.toad_info_parser import parse_toad_info
                 parsed_data = parse_toad_info(text)
+                recognized = parsed_data is not None
+            elif cmd_real_name == "Моя жаба":
+                from src.utils.toad_info_parser import parse_my_toad
+                parsed_data = parse_my_toad(text)
+                recognized = parsed_data is not None
+            elif cmd_real_name == "Мой инвентарь":
+                from src.utils.toad_info_parser import parse_inventory
+                parsed_data = parse_inventory(text)
                 recognized = parsed_data is not None
             else:
                 recognized = any_matched

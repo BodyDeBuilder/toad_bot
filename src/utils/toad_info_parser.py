@@ -43,6 +43,7 @@ PATTERNS_ARENA = [
 PATTERNS_PARTY = [
     (r"^(?:💃🏻|💃):\s*Можно потусить$", lambda m: ("ready", 0)),
     (r"^(?:💃🏻|💃):\s*Жаба уже тусила$", lambda m: ("cooldown", 0)),
+    (r"^(?:💃🏻|💃):\s*Жаба готовится к тусе$", lambda m: ("preparing", 0)),
 ]
 
 PATTERNS_MARRIAGE = [
@@ -253,7 +254,7 @@ def parse_my_toad(text: str) -> Optional[Dict[str, Any]]:
         result['status'] = status_raw
     
     # 5. State
-    state_match = re.search(r'Состояние:\s*(Живая|alive|❤️🩹\s*Нужна реанимация|injured)', text_clean, re.IGNORECASE)
+    state_match = re.search(r'Состояние:\s*(?:[^\w\s]*\s*)?(Живая|alive|Нужна реанимация|injured)', text_clean, re.IGNORECASE)
     if not state_match:
         return None
     state_raw = state_match.group(1).strip().lower()
@@ -286,11 +287,10 @@ def parse_my_toad(text: str) -> Optional[Dict[str, Any]]:
         result['class'] = f'{class_match.group(1).strip()} {class_lvl}'
     
     # 8. Mood
-    mood_match = re.search(r'Настроение:\s*(.+?)\s*\((\d+)\)', text_clean)
+    mood_match = re.search(r'Настроение:\s*(?:[^\w\s]*\s*)?([а-яА-ЯёЁ\s]+)\s*\((\d+)\)', text_clean, re.IGNORECASE)
     if not mood_match:
         return None
-    result['mood'] = mood_match.group(1).strip()
-    result['mood_val'] = int(mood_match.group(2))
+    result['mood'] = int(mood_match.group(2))
     
     # 9. Wins
     wins_match = re.search(r'Количество побед:\s*(\d+)', text_clean)
@@ -310,4 +310,116 @@ def parse_my_toad(text: str) -> Optional[Dict[str, Any]]:
         return None
     result['arenas'] = int(arenas_match.group(1))
     
+    return result
+
+
+def parse_inventory(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Parses a 'Мой инвентарь' response and returns a dictionary of inventory items.
+    Returns None if it doesn't look like an inventory response.
+    """
+    text_clean = text.replace("\r", "")
+    
+    # Check if this is indeed an inventory response
+    if "Твой инвентарь:" not in text_clean:
+        return None
+        
+    result: Dict[str, Any] = {}
+    
+    # 1. Section: Твой инвентарь
+    # 🍭 Леденцы: 42
+    lollipop_match = re.search(r"🍭\s*Леденцы:\s*(\d+)", text_clean)
+    result["inv_lollipop"] = lollipop_match.group(1) if lollipop_match else "0"
+    
+    # 💊 Аптечки: 34
+    bandages_match = re.search(r"💊\s*Аптечки:\s*(\d+)", text_clean)
+    result["inv_bandages"] = bandages_match.group(1) if bandages_match else "0"
+    
+    # 🍻 Пивас: На месте! / Жабка без пива :(
+    beer_match = re.search(r"🍻\s*Пивас:\s*([^\n\r]+)", text_clean)
+    result["inv_beer"] = beer_match.group(1).strip() if beer_match else "-"
+    
+    # 🦟 Стрекозюля удачи: На месте!
+    dragonfly_match = re.search(r"🦟\s*Стрекозюля удачи:\s*([^\n\r]+)", text_clean)
+    result["inv_dragonfly"] = dragonfly_match.group(1).strip() if dragonfly_match else "-"
+    
+    # 🗺 Карта болота: 1 / 0 + (🌌 7)
+    map_match = re.search(r"🗺\s*Карта болота:\s*([^\n\r]+)", text_clean)
+    if map_match:
+        map_str = map_match.group(1).strip()
+        cosmic_match = re.search(r"(\d+)\s*\+\s*\(\s*🌌\s*(\d+)\s*\)", map_str)
+        if cosmic_match:
+            result["inv_map"] = f"{cosmic_match.group(1)}+🌌{cosmic_match.group(2)}"
+        else:
+            num_match = re.search(r"^(\d+)$", map_str)
+            if num_match:
+                result["inv_map"] = f"{num_match.group(1)}+🌌0"
+            else:
+                result["inv_map"] = map_str
+    else:
+        result["inv_map"] = "0+🌌0"
+    
+    # 🧿 Изолента: 4
+    tape_match = re.search(r"🧿\s*Изолента:\s*(\d+)", text_clean)
+    result["inv_tape"] = tape_match.group(1) if tape_match else "0"
+    
+    # 🐸 Жабули для банды: 0/10 -> parse 0
+    gang_match = re.search(r"🐸\s*Жабули для банды:\s*(\d+)(?:/\d+)?", text_clean)
+    result["inv_gang_frogs"] = gang_match.group(1) if gang_match else "-"
+    
+    # 🔋 Капсула опыта: 4 (optional)
+    exp_match = re.search(r"🔋\s*Капсула опыта:\s*(\d+)", text_clean)
+    result["inv_exp_capsule"] = exp_match.group(1) if exp_match else "-"
+    
+    # 2. Section: Снаряжение для ограбления (optional)
+    if "Снаряжение для ограбления:" in text_clean:
+        # 🔖 Пропуск: 0/1
+        pass_match = re.search(r"🔖\s*Пропуск(?:[^:]*):\s*(\d+)(?:/\d+)?", text_clean)
+        result["eq_pass"] = pass_match.group(1) if pass_match else "-"
+        
+        # 🪛 Отмычка: 4/10
+        lockpick_match = re.search(r"🪛\s*Отмычка(?:[^:]*):\s*(\d+)(?:/\d+)?", text_clean)
+        result["eq_lockpick"] = lockpick_match.group(1) if lockpick_match else "-"
+        
+        # 🔋 Батарейка: 0/10
+        battery_match = re.search(r"🔋\s*Батарейка(?:[^:]*):\s*(\d+)(?:/\d+)?", text_clean)
+        result["eq_battery"] = battery_match.group(1) if battery_match else "-"
+    else:
+        result["eq_pass"] = "-"
+        result["eq_lockpick"] = "-"
+        result["eq_battery"] = "-"
+        
+    # 3. Section: Кусочки для крафта (optional)
+    if "Кусочки для крафта:" in text_clean:
+        # 🧩: 4/10
+        puzzle_match = re.search(r"🧩:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_puzzle"] = puzzle_match.group(1) if puzzle_match else "-"
+        
+        # 🔗: 5/10
+        link_match = re.search(r"🔗:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_link"] = link_match.group(1) if link_match else "-"
+        
+        # 🪨: 6/10
+        stone_match = re.search(r"🪨:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_stone"] = stone_match.group(1) if stone_match else "-"
+        
+        # 🎭: 5/10
+        mask_match = re.search(r"🎭:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_mask"] = mask_match.group(1) if mask_match else "-"
+        
+        # 📃: 6/10
+        paper_match = re.search(r"📃:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_paper"] = paper_match.group(1) if paper_match else "-"
+        
+        # ⚡️: 5/10 (also support ⚡ without variant selector)
+        lightning_match = re.search(r"⚡️?:\s*(\d+)(?:/\d+)?", text_clean)
+        result["cr_lightning"] = lightning_match.group(1) if lightning_match else "-"
+    else:
+        result["cr_puzzle"] = "-"
+        result["cr_link"] = "-"
+        result["cr_stone"] = "-"
+        result["cr_mask"] = "-"
+        result["cr_paper"] = "-"
+        result["cr_lightning"] = "-"
+        
     return result

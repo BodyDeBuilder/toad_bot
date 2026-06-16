@@ -6,6 +6,7 @@ class KnowledgeBase:
     ACTION_WORK = "work"
     ACTION_INFO = "info"
     ACTION_STATS = "stats"
+    ACTION_INVENTORY = "inventory"
 
     # Регулярные выражения триггеров команд пользователя
     COMMAND_TRIGGERS = {
@@ -20,6 +21,10 @@ class KnowledgeBase:
         ACTION_STATS: re.compile(
             r"^моя\s+жаба$",
             re.IGNORECASE
+        ),
+        ACTION_INVENTORY: re.compile(
+            r"^мой\s+инвентарь$",
+            re.IGNORECASE
         )
     }
 
@@ -28,6 +33,7 @@ class KnowledgeBase:
         ACTION_WORK: False,      # Нельзя отправить дважды, не страшно упустить
         ACTION_INFO: False,
         ACTION_STATS: False,
+        ACTION_INVENTORY: False,
     }
 
     # Регулярные выражения для распознавания ответов Жабабота и обновления БД
@@ -101,6 +107,12 @@ class KnowledgeBase:
         {
             "pattern": re.compile(r"🐸[\s\S]*?(?:Уровень|Сытость|Атака|Здоровье|Букашек)", re.IGNORECASE | re.DOTALL),
             "action_type": ACTION_STATS,
+            "db_updates": {}
+        },
+        # --- МОЙ ИНВЕНТАРЬ ---
+        {
+            "pattern": re.compile(r"Твой инвентарь:", re.IGNORECASE | re.DOTALL),
+            "action_type": ACTION_INVENTORY,
             "db_updates": {}
         }
     ]

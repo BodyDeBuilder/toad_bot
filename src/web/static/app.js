@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
         parsedAccount: null,      // Распарсенный на Шаге 1 аккаунт
         deletingAccountId: null,  // ID удаляемого аккаунта
         activeTab: 'schedule',    // Активная вкладка ('schedule', 'stats', 'logs', 'settings')
-        activeSubTab: 'general',  // Активная подвкладка статистики ('general', 'toad', 'family', 'arena', 'clan')
+        activeSubTab: 'general',  // Активная подвкладка статистики ('general', 'toad', 'family', 'arena', 'clan', 'inventory')
         renderedAccountId: null,  // ID последнего отрендеренного аккаунта деталей
         globalSettings: {},       // Глобальные настройки (фора начала, похода и завершения работы)
         selectedStrangeId: null,  // ID выбранной в данный момент нераспознанной фразы
@@ -27,6 +27,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let monitorStatsInterval = null;
     let likesPollInterval = null;
     let isMonitorActive = false;
+
+    function formatError(err) {
+        if (!err) return 'Неизвестная ошибка';
+        const detail = err.detail;
+        if (!detail) return err.message || 'Произошла ошибка';
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail)) {
+            return detail.map(e => {
+                const loc = e.loc ? e.loc.join('.') : '';
+                return (loc ? loc + ': ' : '') + e.msg;
+            }).join(', ');
+        }
+        if (typeof detail === 'object') return JSON.stringify(detail);
+        return String(detail);
+    }
 
 
     // DOM Элементы
@@ -370,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     await fetchAndRenderRecognitionRules();
                                 } else {
                                     const err = await postRes.json();
-                                    showToast('❌ Ошибка: ' + (err.detail || 'Не удалось добавить'), 'error');
+                                    showToast('Ошибка: ' + formatError(err), 'error');
                                 }
                             } catch (err) {
                                 console.error(err);
@@ -450,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         fetchAndRenderMonitorVariations();
                     } else {
                         const err = await res.json();
-                        showToast(`❌ Ошибка: ${err.detail || 'Не удалось добавить'}`, 'error');
+                        showToast('Ошибка: ' + formatError(err), 'error');
                     }
                 } catch (err) {
                     console.error(err);
@@ -496,7 +511,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             fetchAndRenderMonitorVariations();
                         } else {
                             const err = await res.json();
-                            showToast(`❌ Ошибка импорта: ${err.detail || 'Не удалось импортировать'}`, 'error');
+                            showToast('Ошибка импорта: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -526,7 +541,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         showToast('📊 Отчет Excel успешно загружен', 'success');
                     } else {
                         const err = await res.json();
-                        showToast(`❌ Ошибка экспорта: ${err.detail || 'Не удалось сохранить отчет'}`, 'error');
+                        showToast('Ошибка экспорта: ' + formatError(err), 'error');
                     }
                 } catch (err) {
                     console.error(err);
@@ -1684,7 +1699,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             await fetchAndRenderMonitorVariations();
                         } else {
                             const err = await res.json();
-                            showToast('❌ Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error');
+                            showToast('Ошибка: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -1709,7 +1724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             await fetchAndRenderMonitorVariations();
                         } else {
                             const err = await res.json();
-                            showToast('❌ Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error');
+                            showToast('Ошибка: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -1813,7 +1828,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             await fetchAndRenderRecognitionRules();
                         } else {
                             const err = await res.json();
-                            showToast('❌ Ошибка: ' + (err.detail || 'Не удалось убрать команду'), 'error');
+                            showToast('Ошибка: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -2130,7 +2145,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             await fetchAndRenderDebugUnrecognized();
                         } else {
                             const err = await res.json();
-                            showToast('❌ Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error');
+                            showToast('Ошибка: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -2156,7 +2171,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             await fetchAndRenderDebugUnrecognized();
                         } else {
                             const err = await res.json();
-                            showToast('❌ Ошибка: ' + (err.detail || 'Не удалось удалить'), 'error');
+                            showToast('Ошибка: ' + formatError(err), 'error');
                         }
                     } catch (err) {
                         console.error(err);
@@ -2217,7 +2232,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     "Настроение": "mood",
                     "Победы": "wins",
                     "Поражения": "losses",
-                    "Арены": "arenas"
+                    "Арены": "arenas",
+                    "Леденцы": "inv_lollipop",
+                    "Аптечки": "inv_bandages",
+                    "Пивас": "inv_beer",
+                    "Стрекозюля удачи": "inv_dragonfly",
+                    "Карта болота": "inv_map",
+                    "Изолента": "inv_tape",
+                    "Жабули для банды": "inv_gang_frogs",
+                    "Капсула опыта": "inv_exp_capsule",
+                    "Пропуск": "eq_pass",
+                    "Отмычка": "eq_lockpick",
+                    "Батарейка": "eq_battery",
+                    "🧩": "cr_puzzle",
+                    "🔗": "cr_link",
+                    "🪨": "cr_stone",
+                    "🎭": "cr_mask",
+                    "📃": "cr_paper",
+                    "⚡️": "cr_lightning"
                 };
                 const cleanSubName = sub.name.replace(" Вектор", "").trim();
                 const key = SECTION_KEYS[cleanSubName] || "";
@@ -3026,6 +3058,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button class="sub-tab-btn ${state.activeSubTab === 'family' ? 'active' : ''}" data-subtab="family">Семья</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'arena' ? 'active' : ''}" data-subtab="arena">Арена</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'clan' ? 'active' : ''}" data-subtab="clan">Клан</button>
+                            <button class="sub-tab-btn ${state.activeSubTab === 'inventory' ? 'active' : ''}" data-subtab="inventory">Инвентарь</button>
                         </div>
 
                         <!-- Содержимое подвкладок -->
@@ -3273,6 +3306,112 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Состав</span>
                                                 <span class="stat-value" id="stat-row-clan-members">Загрузка...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Подвкладка: Инвентарь -->
+                            <div class="sub-tab-content ${state.activeSubTab === 'inventory' ? '' : 'hidden'}" id="sub-tab-inventory">
+                                <div class="stats-columns-grid">
+                                    <!-- Столбец 1: Инвентарь -->
+                                    <div class="stats-column-wrapper">
+                                        <div class="column-timer" id="timer-column-inventory">
+                                            <span class="dot"></span>
+                                            <span>Проверено: загрузка...</span>
+                                        </div>
+                                        <div class="stats-column">
+                                            <div class="stats-column-title">🎒 Инвентарь</div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🍭 Леденцы</span>
+                                                <span class="stat-value" id="stat-row-inv-lollipop">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">💊 Аптечки</span>
+                                                <span class="stat-value" id="stat-row-inv-bandages">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🍻 Пивас</span>
+                                                <span class="stat-value" id="stat-row-inv-beer">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🦟 Стрекозюля удачи</span>
+                                                <span class="stat-value" id="stat-row-inv-dragonfly">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🗺 Карта болота</span>
+                                                <span class="stat-value" id="stat-row-inv-map">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🧿 Изолента</span>
+                                                <span class="stat-value" id="stat-row-inv-tape">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🐸 Жабули для банды</span>
+                                                <span class="stat-value" id="stat-row-inv-gang-frogs">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🔋 Капсула опыта</span>
+                                                <span class="stat-value" id="stat-row-inv-exp-capsule">Загрузка...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Столбец 2: Ограбление -->
+                                    <div class="stats-column-wrapper">
+                                        <div class="column-timer" id="timer-column-robbery-gear">
+                                            <span class="dot"></span>
+                                            <span>Проверено: загрузка...</span>
+                                        </div>
+                                        <div class="stats-column">
+                                            <div class="stats-column-title">🥷 Ограбление</div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🔖 Пропуск</span>
+                                                <span class="stat-value" id="stat-row-eq-pass">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🪛 Отмычка</span>
+                                                <span class="stat-value" id="stat-row-eq-lockpick">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🔋 Батарейка</span>
+                                                <span class="stat-value" id="stat-row-eq-battery">Загрузка...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Столбец 3: Крафт -->
+                                    <div class="stats-column-wrapper">
+                                        <div class="column-timer" id="timer-column-craft">
+                                            <span class="dot"></span>
+                                            <span>Проверено: загрузка...</span>
+                                        </div>
+                                        <div class="stats-column">
+                                            <div class="stats-column-title">🛠 Крафт</div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🧩</span>
+                                                <span class="stat-value" id="stat-row-cr-puzzle">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🔗</span>
+                                                <span class="stat-value" id="stat-row-cr-link">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🪨</span>
+                                                <span class="stat-value" id="stat-row-cr-stone">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🎭</span>
+                                                <span class="stat-value" id="stat-row-cr-mask">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">📃</span>
+                                                <span class="stat-value" id="stat-row-cr-paper">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">⚡️</span>
+                                                <span class="stat-value" id="stat-row-cr-lightning">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3647,7 +3786,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Обновляем таймеры последнего обновления
-        const timeAgoText = formatLastChecked(acc.last_checked);
+        const ts = acc.toad_state;
+        const timeAgoText = (acc.vk_id !== 0 && ts && ts.last_updated_iso) ? formatLastChecked(ts.last_updated_iso) : formatLastChecked(acc.last_checked);
         const timerSatiety = document.querySelector('#timer-column-satiety span:last-child');
         const dotSatiety = document.querySelector('#timer-column-satiety .dot');
         if (timerSatiety) {
@@ -4045,9 +4185,109 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const rowClanBooster = document.getElementById('stat-row-clan-booster');
         if (rowClanBooster) {
-            const val = acc.clan_booster || 'Нет';
+            const val = acc.vk_id === 0 ? (acc.clan_booster || 'Нет') : '-';
             if (rowClanBooster.textContent !== val) rowClanBooster.textContent = val;
         }
+
+        // Обновляем таймеры последнего обновления для инвентаря
+        const timerInventory = document.querySelector('#timer-column-inventory span:last-child');
+        const dotInventory = document.querySelector('#timer-column-inventory .dot');
+        if (timerInventory) {
+            const fullText = `Проверено: ${timeAgoText}`;
+            if (timerInventory.textContent !== fullText) timerInventory.textContent = fullText;
+            if (dotInventory) {
+                if (acc.last_checked || (ts && ts.last_updated_iso)) {
+                    dotInventory.classList.remove('offline');
+                } else {
+                    dotInventory.classList.add('offline');
+                }
+            }
+        }
+        const timerRobberyGear = document.querySelector('#timer-column-robbery-gear span:last-child');
+        const dotRobberyGear = document.querySelector('#timer-column-robbery-gear .dot');
+        if (timerRobberyGear) {
+            const fullText = `Проверено: ${timeAgoText}`;
+            if (timerRobberyGear.textContent !== fullText) timerRobberyGear.textContent = fullText;
+            if (dotRobberyGear) {
+                if (acc.last_checked || (ts && ts.last_updated_iso)) {
+                    dotRobberyGear.classList.remove('offline');
+                } else {
+                    dotRobberyGear.classList.add('offline');
+                }
+            }
+        }
+        const timerCraft = document.querySelector('#timer-column-craft span:last-child');
+        const dotCraft = document.querySelector('#timer-column-craft .dot');
+        if (timerCraft) {
+            const fullText = `Проверено: ${timeAgoText}`;
+            if (timerCraft.textContent !== fullText) timerCraft.textContent = fullText;
+            if (dotCraft) {
+                if (acc.last_checked || (ts && ts.last_updated_iso)) {
+                    dotCraft.classList.remove('offline');
+                } else {
+                    dotCraft.classList.add('offline');
+                }
+            }
+        }
+
+        // Обновляем значения инвентаря
+        const inventoryFields = [
+            { id: 'stat-row-inv-lollipop', field: 'inv_lollipop' },
+            { id: 'stat-row-inv-bandages', field: 'inv_bandages' },
+            { id: 'stat-row-inv-beer', field: 'inv_beer' },
+            { id: 'stat-row-inv-dragonfly', field: 'inv_dragonfly' },
+            { id: 'stat-row-inv-map', field: 'inv_map' },
+            { id: 'stat-row-inv-tape', field: 'inv_tape' },
+            { id: 'stat-row-inv-gang-frogs', field: 'inv_gang_frogs' },
+            { id: 'stat-row-inv-exp-capsule', field: 'inv_exp_capsule' },
+            { id: 'stat-row-eq-pass', field: 'eq_pass' },
+            { id: 'stat-row-eq-lockpick', field: 'eq_lockpick' },
+            { id: 'stat-row-eq-battery', field: 'eq_battery' },
+            { id: 'stat-row-cr-puzzle', field: 'cr_puzzle' },
+            { id: 'stat-row-cr-link', field: 'cr_link' },
+            { id: 'stat-row-cr-stone', field: 'cr_stone' },
+            { id: 'stat-row-cr-mask', field: 'cr_mask' },
+            { id: 'stat-row-cr-paper', field: 'cr_paper' },
+            { id: 'stat-row-cr-lightning', field: 'cr_lightning' }
+        ];
+
+        inventoryFields.forEach(({ id, field }) => {
+            const el = document.getElementById(id);
+            if (el) {
+                let val = '-';
+                if (acc.vk_id !== 0 && ts && ts[field] !== undefined && ts[field] !== null) {
+                    const dbVal = ts[field];
+                    if (dbVal !== '-') {
+                        if (field === 'inv_map') {
+                            if (typeof dbVal === 'string' && dbVal.includes('+🌌')) {
+                                const parts = dbVal.split('+🌌');
+                                const normal = parseInt(parts[0]) || 0;
+                                const cosmic = parseInt(parts[1]) || 0;
+                                if (cosmic > 0) {
+                                    val = `${normal + cosmic} (${normal}+🌌${cosmic})`;
+                                } else {
+                                    val = `${normal}`;
+                                }
+                            } else {
+                                val = dbVal;
+                            }
+                        } else if ([
+                            'inv_gang_frogs', 'eq_lockpick', 'eq_battery', 
+                            'cr_puzzle', 'cr_link', 'cr_stone', 'cr_mask', 'cr_paper', 'cr_lightning'
+                        ].includes(field)) {
+                            val = `${dbVal}/10`;
+                        } else if (field === 'eq_pass') {
+                            val = `${dbVal}/1`;
+                        } else {
+                            val = dbVal;
+                        }
+                    } else {
+                        val = '-';
+                    }
+                }
+                if (el.textContent !== val) el.textContent = val;
+            }
+        });
 
         // 3. Обновляем инпуты настроек (чтобы не сбивать фокус и состояние, сверяем значения) - только если это реальный аккаунт
         if (acc.vk_id !== 0) {
