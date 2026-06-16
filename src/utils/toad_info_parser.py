@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 
 # Helper to parse hours and minutes into total minutes
 def _parse_duration(hours_str: Optional[str], minutes_str: Optional[str]) -> int:
