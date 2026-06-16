@@ -37,10 +37,6 @@ class PendingManager:
         # vk_id -> timestamp, до которого аккаунт заблокирован
         self.account_locks: Dict[int, float] = {}
 
-    def is_locked(self, vk_id: int) -> bool:
-        """Проверяет, заблокирован ли сейчас аккаунт для авто-действий"""
-        return time.time() < self.account_locks.get(vk_id, 0)
-
     def lock_account(self, vk_id: int, duration: float = 15.0):
         """Накладывает временную блокировку на планировщик для аккаунта"""
         self.account_locks[vk_id] = time.time() + duration
