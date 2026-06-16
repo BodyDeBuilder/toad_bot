@@ -835,7 +835,7 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
             raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
     @app.post("/api/monitor/commands/{command_id}/recognition/toggle")
-    async def toggle_monitored_command_in_recognition(command_id: int, payload: RecognitionToggleSchema, username: str = Depends(authenticate)):
+    async def toggle_monitored_command_in_recognition(command_id: int, payload: RecognitionStatusSchema, username: str = Depends(authenticate)):
         """Добавление/удаление команды из вкладки Распознавание"""
         try:
             await db.toggle_monitored_command_in_recognition(command_id, payload.in_recognition)
