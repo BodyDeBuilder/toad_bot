@@ -7,6 +7,7 @@ from vkbottle_types.events import UserEventType
 from vkbottle_types.events.user_events import MessageEdit
 from src.database.db_manager import DBManager
 from src.utils.knowledge_base import KnowledgeBase
+from src.utils.toad_info_parser import parse_toad_info
 
 logger = logging.getLogger("toadbot.vk.handlers")
 
@@ -62,134 +63,6 @@ def parse_toad_profile(text: str) -> Dict[str, Any]:
     if pos_match:
         parsed["positions"] = pos_match.group(1).strip()
 
-    return parsed
-
-
-def parse_toad_info(text: str) -> Dict[str, Any]:
-    parsed = {}
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    
-    # Импортируем KnowledgeBase для доступа к кэшу построчных шаблонов
-    from src.utils.knowledge_base import KnowledgeBase
-    
-    # Флаг, чтобы обработать строку работы только один раз (первую подходящую)
-    work_processed = False
-    
-    # Загружаем построчные шаблоны из кэша (для действия 'info')
-    modular_rules = KnowledgeBase.MODULAR_LINE_PATTERNS.get("info", [])
-    
-    # Если кэш пуст (например, при запуске тестов без Uvicorn), используем жестко заданный fallback
-    if not modular_rules:
-        # Fallback offline matching using exact clean regexes (with emoji fallbacks for test/legacy compatibility)
-        fallback_regexes = {
-            "dungeon_info": r"^👹:\s*(?:Доступно подземелье|Твоя жаба в подземелье|Недоступно во время работы|Жабка восстановится через (?:(?:\d+)\s*ч:)?\s*(?:\d+)\s*мин)$",
-            "arena_info": r"^⚔️:\s*(?:Можно на арену|Атакуй на арене|Ожидай результатов|Арена закрыта|До нападения (?:\d+)\s*мин)$",
-            "party_info": r"^(?:💃🏻|💃):\s*(?:Можно потусить|Жаба уже тусила)$",
-            "marriage_info": r"^💘:\s*(?:Жаба не в браке|.+?\s+и\s+.+)$",
-            "robbery_info": r"^🥷:\s*(?:Доступна подготовка к ограблению|Жаба готовится к ограблению)$",
-            "map_info": r"^🗺:\s*(?:Жаба в начальной точке|Жаба топает на работу|Жаба батрачит в .+)$",
-            "feed_info": r"^🍰:\s*(?:Можно покормить|Покормить можно через (?:(?:\d+)\s*ч:)?\s*(?:\d+)\s*мин)$",
-            "fattening": r"^\((?:Можно откормить|Откорм можно через (?:(?:\d+)\s*ч:)?\s*(?:\d+)\s*мин\.)\)$",
-            "work_info": r"^💼:\s*(?:Можно отправиться на работу|Жаба топает на работу|Завершить работу можно через (?:(?:\d+)\s*ч:)?\s*(?:\d+)\s*мин\.|Завершай работу|Работа будет доступна через (?:(?:\d+)\s*ч:)?\s*(?:\d+)\s*мин)$"
-        }
-        
-        # Сортируем так, чтобы work_info обрабатывалось последним для исключения коллизий
-        sorted_fallback_keys = sorted(fallback_regexes.keys(), key=lambda x: 1 if x == "work_info" else 0)
-        
-        for line in lines:
-            line_lower = line.lower()
-            val = re.sub(r'^[^\w\sа-яА-ЯёЁ\(\)]+\s*[:\-]?\s*', '', line).strip()
-            val = val.strip("()[]")
-            
-            for col in sorted_fallback_keys:
-                if col == "work_info" and work_processed:
-                    continue
-                
-                regex = fallback_regexes[col]
-                if re.search(regex, line, re.IGNORECASE):
-                    parsed[col] = val
-                    if col == "work_info":
-                        work_processed = True
-                        
-                    # А. Кормление (таймер)
-                    if col == "feed_info":
-                        timer_match = re.search(r"(?P<hours>\d+)\s*ч(?:асов|аса|ас)?[:\s]*(?P<minutes>\d+)\s*мин(?:ут)?", val, re.I)
-                        if timer_match:
-                            hours = int(timer_match.group("hours"))
-                            minutes = int(timer_match.group("minutes"))
-                            now_msk = datetime.now(timezone(timedelta(hours=3)))
-                            next_feed = now_msk + timedelta(hours=hours, minutes=minutes)
-                            parsed["feed_info"] = "well-fed"
-                            parsed["next_feed_time"] = next_feed.isoformat()
-                        else:
-                            parsed["feed_info"] = "hungry"
-                            parsed["next_feed_time"] = None
-                            
-                    # Б. Работа (статусы)
-                    elif col == "work_info":
-                        if "на работе" in line_lower or "батрачит" in line_lower or "завершай работу" in line_lower:
-                            parsed["status"] = "working"
-                        elif "подземель" in line_lower:
-                            parsed["status"] = "dungeon"
-                        elif "тусе" in line_lower or "тусовк" in line_lower:
-                            parsed["status"] = "party"
-                        else:
-                            parsed["status"] = "idle"
-                    break
-        return parsed
-
-    # --- ДИНАМИЧЕСКИЙ РАЗБОР НА ОСНОВЕ БАЗЫ ЗНАНИЙ ИЗ БД ---
-    # Для обеспечения проверки работы в последнюю очередь, мы сначала сортируем правила так, чтобы work_info шло последним
-    sorted_rules = sorted(modular_rules, key=lambda x: 1 if x["category"] == "work_info" else 0)
-
-    for line in lines:
-        line_lower = line.lower()
-        val = re.sub(r'^[^\w\sа-яА-ЯёЁ\(\)]+\s*[:\-]?\s*', '', line).strip()
-        val = val.strip("()[]")
-        
-        for rule in sorted_rules:
-            # Если это строка работы, и она уже обработана, пропускаем
-            if rule["category"] == "work_info" and work_processed:
-                continue
-                
-            # Ищем прямое совпадение регулярного выражения
-            if rule["regex"] and rule["regex"].search(line):
-                db_col = rule["db_column"]
-                parsed[db_col] = val
-                
-                # Если категория - работа, ставим флаг
-                if rule["category"] == "work_info":
-                    work_processed = True
-                
-                # Специальная пост-обработка для особых полей:
-                # А. Кормление (парсинг таймера)
-                if db_col == "feed_info":
-                    timer_match = re.search(r"(?P<hours>\d+)\s*ч(?:асов|аса|ас)?[:\s]*(?P<minutes>\d+)\s*мин(?:ут)?", val, re.I)
-                    if timer_match:
-                        hours = int(timer_match.group("hours"))
-                        minutes = int(timer_match.group("minutes"))
-                        now_msk = datetime.now(timezone(timedelta(hours=3)))
-                        next_feed = now_msk + timedelta(hours=hours, minutes=minutes)
-                        parsed["feed_info"] = "well-fed"
-                        parsed["next_feed_time"] = next_feed.isoformat()
-                    else:
-                        parsed["feed_info"] = "hungry"
-                        parsed["next_feed_time"] = None
-                
-                # Б. Работа (парсинг статусов)
-                elif db_col == "work_info":
-                    if "на работе" in line_lower or "батрачит" in line_lower or "завершай работу" in line_lower:
-                        parsed["status"] = "working"
-                    elif "подземель" in line_lower:
-                        parsed["status"] = "dungeon"
-                    elif "тусе" in line_lower or "тусовк" in line_lower:
-                        parsed["status"] = "party"
-                    else:
-                        parsed["status"] = "idle"
-                        
-                # Выходим из цикла правил для этой строки, так как категория найдена
-                break
-                
     return parsed
 
 
