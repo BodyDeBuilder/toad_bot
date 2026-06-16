@@ -779,13 +779,6 @@ class DBManager:
                 ("fattening", "Принудительный откорм", r"^откормить\s+жабу$", 14400),
             ]
             
-            # Считаем названия базовых команд, чтобы не дублировать их при чтении из Excel
-            core_names = {
-                "моя жаба", "жаба инфо", "покормить жабу", "откормить жабу",
-                "поход в столовую", "работа крупье", "работа грабитель",
-                "завершить работу", "отправиться в кафетерий", "отправиться в казино",
-                "отправиться в банк", "начать работу"
-            }
             
             # Статический список импортированных команд из Excel (разовый импорт)
             excel_commands = [
@@ -978,25 +971,6 @@ class DBManager:
             await conn.execute(query, tuple(params))
             await conn.commit()
 
-    async def update_last_action(self, vk_id: int, action: str, timestamp: datetime) -> None:
-        """Обновление времени последнего выполнения действия (fed, worked, dungeon, arena)"""
-        valid_actions = {
-            "fed": "last_fed",
-            "worked": "last_worked",
-            "dungeon": "last_dungeon",
-            "arena": "last_arena"
-        }
-        if action not in valid_actions:
-            raise ValueError(f"Некорректное действие: {action}")
-            
-        field_name = valid_actions[action]
-        ts_str = timestamp.isoformat()
-        
-        async with self._connect() as conn:
-            await conn.execute(f"""
-                UPDATE accounts SET {field_name} = ? WHERE vk_id = ?
-            """, (ts_str, vk_id))
-            await conn.commit()
 
     async def update_last_checked(self, vk_id: int, timestamp: datetime) -> None:
         """Обновление времени последней проверки/активности данных через бота"""
