@@ -1,0 +1,240 @@
+1281:                                 <td style="vertical-align: top; line-height: 1.4;">${paramsHtml}</td>
+1282:                                 <td style="vertical-align: top; line-height: 1.4; color: var(--color-text-main);">${dataMappingHtml}</td>
+1283:                                 <td style="vertical-align: top; line-height: 1.4; color: #a5a2b5; font-size: 11.5px;">
+1284:                                     ${escapeHtml(reaction)}
+1285:                                 </td>
+1286:                             </tr>
+1287:                         </tbody>
+1288:                     </table>
+1289:                 </div>
+1290:             </div>
+1291:         `;
+1292: 
+1293:         content.innerHTML = html;
+1294:     }
+1295: 
+1296:     async function handleResetKB() {
+1297:         if (!confirm("Вы действительно хотите сбросить базу знаний до заводских настроек? Все текущие правила в SQLite будут заменены стандартными шаблонами.")) return;
+1298:         
+1299:         try {
+1300:             const btn = document.getElementById('btn-reset-kb');
+1301:             if (btn) btn.disabled = true;
+1302: 
+1303:             const res = await fetch('/api/knowledge_base/reset', { method: 'POST' });
+1304:             if (!res.ok) throw new Error('Ошибка сети при сбросе базы знаний');
+1305:             const data = await res.json();
+1306:             
+1307:             showToast(data.message || 'База знаний успешно сброшена до стандартных настроек', 'success');
+1308:             await fetchAndRenderKnowledgeBase();
+1309:         } catch (err) {
+1310:             console.error('Ошибка сброса базы знаний:', err);
+1311:             showToast(`❌ Ошибка сброса: ${err.message}`, 'error');
+1312:         } finally {
+1313:             const btn = document.getElementById('btn-reset-kb');
+1314:             if (btn) btn.disabled = false;
+1315:         }
+1316:     }
+1317: 
+1318:     function formatCooldown(seconds) {
+1319:         if (!seconds) return "0";
+1320:         const hrs = Math.floor(seconds / 3600);
+1321:         const mins = Math.floor((seconds % 3600) / 60);
+1322:         if (hrs > 0) {
+1323:             return mins > 0 ? `${hrs} ч. ${mins} мин.` : `${hrs} ч.`;
+1324:         }
+1325:         return `${mins} мин.`;
+1326:     }= `
+1327:                     <div class="kb-tree-node expanded" data-index="${index}">
+1328:                         <div class="kb-tree-header">
+1329:                             <span class="kb-tree-arrow">▶</span>
+1330:                             <span>${parent.icon} ${parent.name}</span>
+1331:                         </div>
+1332:                         <div class="kb-tree-children">
+1333:                             ${childrenHtml}
+1334:                         </div>
+1335:                     </div>
+1336:                 `;
+1337:             });
+1338:             
+1339:             sidebarContainer.innerHTML = sidebarHtml;
+1340: 
+1341:             // Навешиваем клики на разворачивание веток (Диспетчер устройств)
+1342:             sidebarContainer.querySelectorAll('.kb-tree-header').forEach(header => {
+1343:                 header.addEventListener('click', (e) => {
+1344:                     e.stopPropagation();
+1345:                     const node = header.parentElement;
+1346:                     node.classList.toggle('expanded');
+1347:                 });
+1348:             });
+1349: 
+1350:             // Навешиваем клики на вложенные подфункции
+1351:             sidebarContainer.querySelectorAll('.kb-tree-subnode').forEach(subnode => {
+1352:                 subnode.addEventListener('click', (e) => {
+1353:                     e.stopPropagation();
+1354:                     sidebarContainer.querySelectorAll('.kb-tree-subnode').forEach(n => n.classList.remove('active'));
+1355:                     subnode.classList.add('active');
+1356:                     
+1357:                     const key = subnode.dataset.key;
+1358:                     renderKBSubnodeDetails(key, data);
+1359:                 });
+1360:             });
+1361: 
+1362:         } catch (err) {
+1363:             console.error('Ошибка рендеринга базы знаний:', err);
+1364:             sidebarContainer.innerHTML = `
+1365:                 <div style="color: var(--color-danger); text-align: center; padding: 10px; font-size: 12px;">
+1366:                     ⚠️ Ошибка загрузки: ${escapeHtml(err.message)}
+1367:                 </div>
+1368:             `;
+1369:         }
+1370:     }
+1371: 
+1372:     function renderKBSubnodeDetails(key, data) {
+1373:         const placeholder = document.getElementById('kb-detail-placeholder');
+1374:         const content = document.getElementById('kb-detail-content');
+1375:         if (!placeholder || !content) return;
+1376: 
+1377:         placeholder.classList.add('hidden');
+1378:         content.classList.remove('hidden');
+1379: 
+1380:         const phrase = HUMAN_KB_PHRASES[key] || "Спецификация разбора";
+1381:         const example = HUMAN_KB_EXAMPLES[key] || "Нет примера";
+1382:         const reaction = HUMAN_KB_REACTIONS[key] || "Выполняет обновление параметров в SQLite.";
+1383: 
+1384:         let actionName = "";
+1385:         let triggerText = "";
+1386:         let regexText = "";
+1387:         let dbColumnText = "";
+1388: 
+1389:         if (key.startsWith('info_')) {
+1390:             actionName = "Жаба инфо";
+1391:             triggerText = "жаба инфо";
+1392:             const categoryName = key.replace('info_', '');
+1393:             const mod = data.modular_line_templates.find(m => m.action_type === 'info' && m.category === categoryName);
+1394:             if (mod) {
+1395:                 regexText = mod.regex || ".*";
+1396:                 dbColumnText = mod.db_column || "-";
+1397:             }
+1398:         } else if (key.startsWith('stats_')) {
+1399:             actionName = "Анкета";
+1400:             triggerText = "моя жаба";
+1401:             const resp = data.response_templates.find(r => r.action_type === 'stats');
+1402:             if (resp) {
+1403:                 regexText = resp.regex;
+1404:                 dbColumnText = "vk_id, name, level, satiety, bugs, mood, class, positions";
+1405:             }
+1406:         } else if (key.startsWith('feed_')) {
+1407:             actionName = "Обычное кормление";
+1408:             triggerText = "покормить жабу";
+1409:             const resp = data.response_templates.find(r => r.action_type === 'feed' && r.response_type === 'cooldown');
+1410:             if (resp) {
+1411:                 regexText = resp.regex;
+1412:                 dbColumnText = "feed_info, next_feed_time";
+1413:             }
+1414:         } else if (key.startsWith('fattening_')) {
+1415:             actionName = "Принудительный откорм";
+1416:             triggerText = "откормить жабу";
+1417:             const resp = data.response_templates.find(r => r.action_type === 'fattening' && r.response_type === 'cooldown');
+1418:             if (resp) {
+1419:                 regexText = resp.regex;
+1420:                 dbColumnText = "fattening";
+1421:             }
+1422:         } else if (key.startsWith('work_')) {
+1423:             actionName = "Работа";
+1424:             triggerText = "поход в столовую / крупье...";
+1425:             const patternMap = {
+1426:                 'work_work_success': 'Успешная отправка на работу',
+1427:                 'work_work_duplicate': 'Жаба уже работает',
+1428:                 'work_work_cooldown': 'Кулдаун работы (устала)',
+1429:                 'work_work_cooldown_alt': 'Альтернативный кулдаун работы',
+1430:                 'work_work_dungeon': 'Жаба в подземелье',
+1431:                 'work_work_party': 'Жаба на тусе'
+1432:             };
+1433:             const patternName = patternMap[key];
+1434:             const resp = data.response_templates.find(r => r.action_type === 'work' && r.pattern_name === patternName);
+1435:             if (resp) {
+1436:                 regexText = resp.regex;
+1437:                 dbColumnText = "status, work_info";
+1438:             }
+1439:         }
+1440: 
+1441:         let html = `
+1442:             <div class="kb-detail-card">
+1443:                 <div class="kb-detail-header">
+1444:                     <div class="kb-detail-title">
+1445:                         <span>📄</span>
+1446:                         <span>${phrase}</span>
+1447:                     </div>
+1448:                     <div class="kb-detail-desc">
+1449:                         Получено при обработке сообщения <b>"${triggerText}"</b> (${actionName})
+1450:                     </div>
+1451:                 </div>
+1452: 
+1453:                 <div class="kb-table-wrapper" style="margin-top: 10px;">
+1454:                     <table class="kb-table">
+1455:                         <thead>
+1456:                             <tr>
+1457:                                 <th style="width: 250px;">Пример сообщения Жабабота</th>
+1458:                                 <th style="width: 150px;">Регулярное выражение (Regex)</th>
+1459:                                 <th>Реакция нашего бота</th>
+1460:                             </tr>
+1461:                         </thead>
+1462:                         <tbody>
+1463:                             <tr>
+1464:                                 <td style="white-space: pre-wrap; vertical-align: top; line-height: 1.4; color: var(--color-text-main);">${escapeHtml(example)}</td>
+1465:                                 <td style="vertical-align: top;">
+1466:                                     <span class="kb-regex-badge-compact" title="${escapeHtml(regexText)}">${escapeHtml(regexText)}</span>
+1467:                                     <div style="font-size: 10.5px; color: var(--color-text-muted); margin-top: 8px;">
+1468:                                         Запись в SQLite:<br>
+1469:                                         <span class="kb-column-tag" style="display: inline-block; margin-top: 4px;">${dbColumnText}</span>
+1470:                                     </div>
+1471:                                 </td>
+1472:                                 <td style="vertical-align: top; line-height: 1.4; color: #a5a2b5;">
+1473:                                     ${escapeHtml(reaction)}
+1474:                                 </td>
+1475:                             </tr>
+1476:                         </tbody>
+1477:                     </table>
+1478:                 </div>
+1479:             </div>
+1480:         `;
+1481: 
+1482:         content.innerHTML = html;
+1483:     }
+1484: 
+1485:     async function handleResetKB() {
+1486:         if (!confirm("Вы действительно хотите сбросить базу знаний до заводских настроек? Все текущие правила в SQLite будут заменены стандартными шаблонами.")) return;
+1487:         
+1488:         try {
+1489:             const btn = document.getElementById('btn-reset-kb');
+1490:             if (btn) btn.disabled = true;
+1491: 
+1492:             const res = await fetch('/api/knowledge_base/reset', { method: 'POST' });
+1493:             if (!res.ok) throw new Error('Ошибка сети при сбросе базы знаний');
+1494:             const data = await res.json();
+1495:             
+1496:             showToast(data.message || 'База знаний успешно сброшена до стандартных настроек', 'success');
+1497:             await fetchAndRenderKnowledgeBase();
+1498:         } catch (err) {
+1499:             console.error('Ошибка сброса базы знаний:', err);
+1500:             showToast(`❌ Ошибка сброса: ${err.message}`, 'error');
+1501:         } finally {
+1502:             const btn = document.getElementById('btn-reset-kb');
+1503:             if (btn) btn.disabled = false;
+1504:         }
+1505:     }
+1506: 
+1507:     function formatCooldown(seconds) {
+1508:         if (!seconds) return "0";
+1509:         const hrs = Math.floor(seconds / 3600);
+1510:         const mins = Math.floor((seconds % 3600) / 60);
+1511:         if (hrs > 0) {
+1512:             return mins > 0 ? `${hrs} ч. ${mins} мин.` : `${hrs} ч.`;
+1513:         }
+1514:         return `${mins} мин.`;
+1515:     }
+1516: 
+1517:     function fillTestPhraseAccountsDropdown() {
+1518:         const select = document.getElementById('test-phrase-account-select');
+1519:         if (!select) return;
+1520: 

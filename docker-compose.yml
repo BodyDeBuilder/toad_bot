@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  toadbot:
+    build: .
+    container_name: vk_toadbot
+    restart: always
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
