@@ -1,11 +1,16 @@
 import re
 from typing import Optional, Dict, Any
 
-# Helper to parse hours and minutes into total minutes
+# Правило: если в ответе игры написано "1ч 29м", мы интерпретируем это как "1ч 29м 59с".
+# То есть добавляем 59 секунд к каждому распознанному значению (погрешность вверх —
+# таймер в UI чуть дольше тикает, но не покажет "готов" раньше фактической готовности).
+_SECONDS_BUFFER = 59
+
 def _parse_duration(hours_str: Optional[str], minutes_str: Optional[str]) -> int:
+    """Парсит 'ч/мин' в секунды (+59с буфер согласно правилу погрешности вверх)."""
     hours = int(hours_str) if hours_str else 0
     minutes = int(minutes_str) if minutes_str else 0
-    return hours * 60 + minutes
+    return hours * 3600 + minutes * 60 + _SECONDS_BUFFER
 
 # Regex patterns for each line category
 PATTERNS_WORK = [
@@ -37,7 +42,7 @@ PATTERNS_ARENA = [
     (r"^⚔️:\s*(?:Можно на арену|Атакуй на арене)$", lambda m: ("ready", 0)),
     (r"^⚔️:\s*Ожидай результатов$", lambda m: ("pending_results", 0)),
     (r"^⚔️:\s*Арена закрыта$", lambda m: ("closed", 0)),
-    (r"^⚔️:\s*До нападения (\d+)\s*мин\.$", lambda m: ("cooldown", int(m.group(1)))),
+    (r"^⚔️:\s*До нападения (\d+)\s*мин\.$", lambda m: ("cooldown", int(m.group(1)) * 60 + _SECONDS_BUFFER)),
 ]
 
 PATTERNS_PARTY = [

@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
         activeSubTab: 'general',  // Активная подвкладка статистики ('general', 'toad', 'family', 'arena', 'clan', 'inventory')
         renderedAccountId: null,  // ID последнего отрендеренного аккаунта деталей
         globalSettings: {},       // Глобальные настройки (фора начала, похода и завершения работы)
-        selectedStrangeId: null,  // ID выбранной в данный момент нераспознанной фразы
         monitorHasFailed: false   // Флаг наличия нераспознанных ответов в отладке
     };
 
@@ -21,11 +20,10 @@ document.addEventListener('DOMContentLoaded', () => {
         name: ""
     };
 
-    // Состояние кастомного списка команд для отладки
-    let allCommands = [];
-    let selectedCommand = "";
+    // Состояние мониторинга
     let monitorStatsInterval = null;
     let likesPollInterval = null;
+    let liveTimersInterval = null;
     let isMonitorActive = false;
 
     function formatError(err) {
@@ -93,13 +91,11 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchGlobalSettings();
         fetchAccounts(true); // Загружаем с принудительным выбором первого аккаунта
         fetchLogs();
-        fetchUnrecognizedPhrases();
         fetchFailedMonitorVariations();
         
         // Запуск интервалов опроса
         setInterval(fetchAccounts, 3000);
         setInterval(fetchLogs, 3000);
-        setInterval(fetchUnrecognizedPhrases, 3000);
         setInterval(fetchFailedMonitorVariations, 3000);
         
         setupEventListeners();
@@ -172,12 +168,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnCloseInitModal) {
             btnCloseInitModal.addEventListener('click', closeInitSessionModal);
         }
-
-        // Листенеры модального окна отладки парсера
-        const btnCloseDebugModal = document.getElementById('btn-close-debug-modal');
-        const btnCancelDebug = document.getElementById('btn-cancel-debug');
-        const btnRunDebug = document.getElementById('btn-run-debug');
-        const debugModalOverlay = document.getElementById('debug-parser-modal-overlay');
 
         // Монитор-режим (модальное окно Мониторинга)
         const btnCloseMonitorModal = document.getElementById('btn-close-monitor-modal');
@@ -569,160 +559,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (btnCloseDebugModal) {
-            btnCloseDebugModal.addEventListener('click', closeDebugModal);
-        }
-        if (btnCancelDebug) {
-            btnCancelDebug.addEventListener('click', closeDebugModal);
-        }
-        if (debugModalOverlay) {
-            // Закрытие при клике по оверлею
-            debugModalOverlay.addEventListener('click', (e) => {
-                if (e.target === debugModalOverlay) {
-                    closeDebugModal();
-                }
-            });
-        }
-        if (btnRunDebug) {
-            btnRunDebug.addEventListener('click', handleRunDebugSubmit);
-        }
-
-
-
-        // Удаление выбранной странной фразы
-        const btnDeleteSelectedStrange = document.getElementById('btn-delete-selected-strange');
-        if (btnDeleteSelectedStrange) {
-            btnDeleteSelectedStrange.addEventListener('click', async () => {
-                if (!state.selectedStrangeId) return;
-                try {
-                    const res = await fetch(`/api/debug/unrecognized/${state.selectedStrangeId}`, { method: 'DELETE' });
-                    if (res.ok) {
-                        showToast('Удалено успешно', 'success');
-                        state.selectedStrangeId = null;
-                        
-                        // Скроем контент и покажем плейсхолдер
-                        const detailContent = document.getElementById('strange-detail-content');
-                        const placeholder = document.getElementById('strange-detail-placeholder');
-                        if (detailContent) detailContent.classList.add('hidden');
-                        if (placeholder) placeholder.classList.remove('hidden');
-                        
-                        fetchUnrecognizedPhrases();
-                    } else {
-                        showToast('❌ Ошибка при удалении', 'error');
-                    }
-                } catch (err) {
-                    console.error(err);
-                    showToast('❌ Ошибка при удалении', 'error');
-                }
-            });
-        }
-
-        // Переключение вкладок в модальном окне отладки
-        const tabInteractiveDebug = document.getElementById('tab-interactive-debug');
-        const tabStrangePhrases = document.getElementById('tab-strange-phrases');
-        const tabPhraseTesting = document.getElementById('tab-phrase-testing');
-        const panelInteractiveDebug = document.getElementById('panel-interactive-debug');
-        const panelStrangePhrases = document.getElementById('panel-strange-phrases');
-        const panelPhraseTesting = document.getElementById('panel-phrase-testing');
-
-        if (tabInteractiveDebug && tabStrangePhrases && tabPhraseTesting && panelInteractiveDebug && panelStrangePhrases && panelPhraseTesting) {
-            tabInteractiveDebug.addEventListener('click', () => {
-                tabInteractiveDebug.classList.add('active');
-                tabStrangePhrases.classList.remove('active');
-                tabPhraseTesting.classList.remove('active');
-                panelInteractiveDebug.classList.remove('hidden');
-                panelStrangePhrases.classList.add('hidden');
-                panelPhraseTesting.classList.add('hidden');
-                if (btnRunDebug) {
-                    btnRunDebug.style.display = 'flex';
-                    btnRunDebug.innerHTML = '🚀 Запустить разбор';
-                }
-            });
-
-            tabStrangePhrases.addEventListener('click', () => {
-                tabStrangePhrases.classList.add('active');
-                tabInteractiveDebug.classList.remove('active');
-                tabPhraseTesting.classList.remove('active');
-                panelStrangePhrases.classList.remove('hidden');
-                panelInteractiveDebug.classList.add('hidden');
-                panelPhraseTesting.classList.add('hidden');
-                if (btnRunDebug) btnRunDebug.style.display = 'none';
-                fetchUnrecognizedPhrases();
-            });
-
-            tabPhraseTesting.addEventListener('click', () => {
-                tabPhraseTesting.classList.add('active');
-                tabInteractiveDebug.classList.remove('active');
-                tabStrangePhrases.classList.remove('active');
-                panelPhraseTesting.classList.remove('hidden');
-                panelInteractiveDebug.classList.add('hidden');
-                panelStrangePhrases.classList.add('hidden');
-                if (btnRunDebug) {
-                    btnRunDebug.style.display = 'flex';
-                    btnRunDebug.innerHTML = '💬 Отправить и проверить ВК';
-                }
-                fillTestPhraseAccountsDropdown();
-            });
-        }
-
-        // Кнопка очистки всех странных фраз
-        const btnClearStrange = document.getElementById('btn-clear-strange');
-        if (btnClearStrange) {
-            btnClearStrange.addEventListener('click', async () => {
-                try {
-                    const res = await fetch('/api/debug/unrecognized/clear', { method: 'POST' });
-                    if (res.ok) {
-                        showToast('🗑️ Список странных фраз успешно очищен!', 'success');
-                        state.selectedStrangeId = null;
-                        
-                        const detailContent = document.getElementById('strange-detail-content');
-                        const placeholder = document.getElementById('strange-detail-placeholder');
-                        if (detailContent) detailContent.classList.add('hidden');
-                        if (placeholder) placeholder.classList.remove('hidden');
-                        
-                        fetchUnrecognizedPhrases();
-                    } else {
-                        showToast('❌ Не удалось очистить список', 'error');
-                    }
-                } catch (err) {
-                    console.error(err);
-                    showToast('❌ Ошибка при очистке', 'error');
-                }
-            });
-        }
-
-
-        // Настройка слушателей событий для кастомного выпадающего списка (Combobox)
-        const comboboxInput = document.getElementById('debug-action-input');
-        const comboboxDropdown = document.getElementById('debug-action-dropdown-list');
-
-        if (comboboxInput && comboboxDropdown) {
-            // Открываем список и фильтруем по фокусу или клику
-            comboboxInput.addEventListener('focus', () => {
-                filterCombobox(comboboxInput.value);
-                comboboxDropdown.classList.add('active');
-            });
-
-            comboboxInput.addEventListener('click', () => {
-                filterCombobox(comboboxInput.value);
-                comboboxDropdown.classList.add('active');
-            });
-
-            // Фильтруем динамически при наборе текста
-            comboboxInput.addEventListener('input', (e) => {
-                const query = e.target.value;
-                filterCombobox(query);
-                comboboxDropdown.classList.add('active');
-            });
-
-            // Закрываем при клике вне области комбобокса
-            document.addEventListener('click', (e) => {
-                if (!e.target.closest('.custom-combobox')) {
-                    comboboxDropdown.classList.remove('active');
-                }
-            });
-        }
-
         // Всплывающая подсказка и копирование для регулярных выражений (data-regex)
         document.addEventListener('mouseover', (e) => {
             const badge = e.target.closest('.kb-regex-badge-compact');
@@ -862,43 +698,6 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
-    async function fetchUnrecognizedPhrases() {
-        try {
-            const res = await fetch('/api/debug/unrecognized');
-            if (!res.ok) return;
-            const phrases = await res.json();
-            
-            // Рендерим список, если открыта вкладка Странные фразы
-            const panelStrangePhrases = document.getElementById('panel-strange-phrases');
-            if (panelStrangePhrases && !panelStrangePhrases.classList.contains('hidden')) {
-                renderStrangePhrases(phrases);
-            }
-
-            // Обновляем счетчик
-            const badge = document.getElementById('strange-phrases-count');
-            if (badge) {
-                if (phrases.length > 0) {
-                    badge.innerText = phrases.length;
-                    badge.style.display = 'inline-block';
-                } else {
-                    badge.style.display = 'none';
-                }
-            }
-
-            // Обновляем класс на кнопке отладки
-            const btnOpenDebug = document.getElementById('btn-open-debug');
-            if (btnOpenDebug) {
-                if (phrases.length > 0) {
-                    btnOpenDebug.classList.add('has-strange');
-                } else {
-                    btnOpenDebug.classList.remove('has-strange');
-                }
-            }
-        } catch (err) {
-            console.error('Ошибка fetchUnrecognizedPhrases:', err);
-        }
-    }
-
     async function fetchFailedMonitorVariations() {
         try {
             const response = await fetch('/api/monitor/debug/unrecognized');
@@ -917,260 +716,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             console.error('Ошибка fetchFailedMonitorVariations:', err);
-        }
-    }
-
-    function generateExplanation(command, response) {
-        if (!response) {
-            return `<div style="color: var(--color-danger); padding: 4px 0;">⚠️ Ошибка: пустой ответ от Жабабота.</div>`;
-        }
-
-        const cmdClean = command.trim().toLowerCase();
-        let html = '';
-
-        // Помощник для форматирования проверок
-        const renderCheck = (label, exists, detail = '') => {
-            const icon = exists ? '✅' : '❌';
-            const color = exists ? 'var(--color-success)' : 'var(--color-danger)';
-            return `
-                <div style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; font-size: 12px;">
-                    <span>${icon}</span>
-                    <div>
-                        <b style="color: ${color};">${label}</b>
-                        ${detail ? `<span style="color: var(--color-text-muted); font-size: 11px;"> — ${detail}</span>` : ''}
-                    </div>
-                </div>
-            `;
-        };
-
-        if (cmdClean === 'жаба инфо') {
-            const hasTitle = /жаба\s+инфо/i.test(response);
-            const hasWork = /💼|работа/i.test(response);
-            const hasFood = /🍰|покормить|сытость/i.test(response);
-            const hasParty = /💃|туса|тусе|тусовка/i.test(response);
-            const hasDungeon = /👹|подземелье/i.test(response);
-            const hasMarriage = /💍|брак|свадьба/i.test(response);
-
-            html += `
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <div style="font-weight: 600; color: var(--color-primary-hover); margin-bottom: 6px;">📋 Команда «Жаба инфо» ожидает сводку статуса:</div>
-                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; margin-bottom: 6px;">
-            `;
-
-            html += renderCheck('Заголовок "Жаба Инфо"', hasTitle, 'обязательный маркер для распознавания начала сообщения');
-            html += renderCheck('Иконка работы (💼)', hasWork, 'определяет статус занятости жабы');
-            html += renderCheck('Иконка еды (🍰)', hasFood, 'определяет готовность к кормлению');
-            html += renderCheck('Иконка тусы (💃)', hasParty, 'определяет нахождение на вечеринке');
-            html += renderCheck('Иконка подземелья (👹)', hasDungeon, 'определяет нахождение в подземелье');
-            html += renderCheck('Иконка брака (💍)', hasMarriage, 'информация о семейном положении (опционально)');
-
-            html += `
-                    </div>
-                    <div style="font-size: 12px; color: var(--color-text-main); line-height: 1.5; margin-top: 4px;">
-            `;
-
-            if (!hasTitle) {
-                html += `⚠️ <b style="color: var(--color-warning);">Критическая ошибка:</b> Бот не смог найти фразу <b>"Жаба Инфо"</b>. Наш парсер использует регулярное выражение <code>/Жаба\\s+Инфо/i</code>, поэтому без этого заголовка сообщение полностью игнорируется.<br><br>`;
-            } else {
-                html += `✔️ Заголовок распознан успешно! Однако, возможно, структура сообщения Жабабота изменилась или в нём отсутствуют ожидаемые статусы, из-за чего парсер не смог обновить внутренние таймеры.<br><br>`;
-            }
-
-            html += `💡 <b>Рекомендация:</b> Убедитесь, что это сообщение действительно является ответом от официального Жабабота и содержит актуальную информацию о Вашей жабе. Регулярные выражения имеют 90% гибкость к пробелам и символам, но структура данных должна сохраняться.</div>
-                </div>
-            `;
-
-        } else if (cmdClean === 'моя жаба') {
-            const hasToadEmoji = /🐸/.test(response);
-            const hasLevel = /Уровень/i.test(response);
-            const hasFullness = /Сытость/i.test(response);
-            const hasBugs = /Букашек/i.test(response);
-            const hasAttack = /Атака|Сила/i.test(response);
-            const hasHealth = /Здоровье/i.test(response);
-
-            html += `
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <div style="font-weight: 600; color: var(--color-primary-hover); margin-bottom: 6px;">🐸 Команда «Моя жаба» ожидает анкету жабы:</div>
-                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; margin-bottom: 6px;">
-            `;
-
-            html += renderCheck('Эмодзи жабы (🐸)', hasToadEmoji, 'обязательный начальный символ анкеты');
-            html += renderCheck('Параметр "Уровень"', hasLevel, 'показывает текущий уровень жабы');
-            html += renderCheck('Параметр "Сытость"', hasFullness, 'показывает шкалу голода');
-            html += renderCheck('Параметр "Букашек"', hasBugs, 'количество букашек (валюты)');
-            html += renderCheck('Параметр "Атака / Сила"', hasAttack, 'боевая характеристика');
-            html += renderCheck('Параметр "Здоровье"', hasHealth, 'запас здоровья жабы');
-
-            html += `
-                    </div>
-                    <div style="font-size: 12px; color: var(--color-text-main); line-height: 1.5; margin-top: 4px;">
-            `;
-
-            const missingAny = !hasToadEmoji || !hasLevel || !hasFullness || !hasBugs;
-            if (missingAny) {
-                html += `⚠️ <b style="color: var(--color-warning);">Критическая ошибка:</b> В тексте отсутствуют обязательные поля анкеты. Наш парсер ищет шаблон: <code>🐸[\\s\\S]*?(?:Уровень|Сытость|Атака|Здоровье|Букашек)</code>. <br>Не найденные поля мешают боту считать характеристики Вашей жабки.<br><br>`;
-            } else {
-                html += `✔️ Основные маркеры анкеты найдены! Возможно, значения параметров содержат некорректные символы, либо числовой формат отличается от стандартного.<br><br>`;
-            }
-
-            html += `💡 <b>Рекомендация:</b> Проверьте, не применил ли Жабабот какой-либо временный эффект или тему оформления, которая скрывает или переименовывает ключевые поля анкеты.</div>
-                </div>
-            `;
-
-        } else if (['поход в столовую', 'работа крупье', 'работа грабитель', 'отправиться в кафетерий', 'отправиться в казино', 'отправиться в банк', 'начать работу', 'завершить работу'].includes(cmdClean)) {
-            // Команда работы
-            const isWorking = /отправилась|пошла|уже\s+работает/i.test(response);
-            const isCooldown = /устала|отдыхает|трудового\s+дня/i.test(response);
-            const isDungeon = /подземелье/i.test(response);
-            const isParty = /тусе|тусовке/i.test(response);
-
-            html += `
-                <div style="display: flex; flex-direction: column; gap: 8px;">
-                    <div style="font-weight: 600; color: var(--color-primary-hover); margin-bottom: 6px;">💼 Команда работы ожидает один из стандартных статусов:</div>
-                    <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 8px; padding: 10px; margin-bottom: 6px;">
-            `;
-
-            html += renderCheck('Статус работы ("отправилась" / "уже работает")', isWorking, 'жаба успешно трудится');
-            html += renderCheck('Статус кулдауна ("устала" / "отдыхает")', isCooldown, 'жаба отдыхает после работы');
-            html += renderCheck('Статус подземелья ("подземелье")', isDungeon, 'жаба находится в подземелье');
-            html += renderCheck('Статус тусы ("на тусе")', isParty, 'жаба отдыхает на тусовке');
-
-            html += `
-                    </div>
-                    <div style="font-size: 12px; color: var(--color-text-main); line-height: 1.5; margin-top: 4px;">
-            `;
-
-            if (!isWorking && !isCooldown && !isDungeon && !isParty) {
-                html += `⚠️ <b style="color: var(--color-warning);">Нераспознанный ответ:</b> Текст сообщения не совпал ни с одним из известных шаблонов работы. Бот ожидает фразы вроде: <i>"жаба отправилась на работу в..."</i>, <i>"твоя жабуля устала..."</i> или <i>"ваша жабка находится в подземелье"</i>.<br><br>`;
-            } else {
-                html += `✔️ Обнаружены признаки статуса, но детальный разбор (время, место) завершился сбоем. Возможно, время указано в непривычном формате (например, без минут или секунд), либо название работы не поддерживается нашей базой данных.<br><br>`;
-            }
-
-            html += `💡 <b>Рекомендация:</b> Проверьте, соответствуют ли текстовые формулировки стандартным ответам Жабабота. Из-за поддержки точности совпадения в 90% небольшие изменения смайликов допускаются, но ключевая грамматика должна быть сохранена.</div>
-                </div>
-            `;
-
-        } else {
-            // Общий случай
-            html += `
-                <div style="display: flex; flex-direction: column; gap: 8px; height: 100%;">
-                    <div style="font-weight: 600; color: var(--color-primary-hover); margin-bottom: 4px;">❓ Команда «${escapeHtml(command)}»:</div>
-                    <div style="font-size: 12.5px; color: var(--color-text-main); line-height: 1.6;">
-                        Этот ответ Жабабота не совпал с зарегистрированными шаблонами в нашей Базе Знаний. <br><br>
-                        ⚙️ <b>Как работает распознавание:</b>
-                        <ul style="padding-left: 20px; margin: 8px 0;">
-                            <li style="margin-bottom: 4px;">Бот использует гибкое сопоставление с точностью <b>90%</b>. Это позволяет игнорировать отсутствие некоторых смайликов, знаков препинания или небольшие изменения окончаний слов.</li>
-                            <li style="margin-bottom: 4px;">Если ответ Жабабота содержит критически измененный синтаксис (например, новое имя бота, системное объявление от администрации или ошибку), сопоставление завершается ошибкой.</li>
-                            <li style="margin-bottom: 4px;">Сообщение сохраняется сюда в отладку, чтобы Вы могли понять причину и, если необходимо, скорректировать шаблоны или сообщить разработчикам.</li>
-                        </ul>
-                    </div>
-                </div>
-            `;
-        }
-
-        return html;
-    }
-
-    function renderStrangePhrases(phrases) {
-        const sidebar = document.getElementById('strange-sidebar');
-        if (!sidebar) return;
-
-        if (!phrases || phrases.length === 0) {
-            sidebar.innerHTML = `
-                <div class="sidebar-placeholder" style="padding: 20px; text-align: center; color: var(--color-text-muted); font-size: 12px;">
-                    ✨ Нет странных фраз.
-                </div>
-            `;
-            // Сбрасываем выбранный ID и скрываем детальный вид
-            state.selectedStrangeId = null;
-            const detailContent = document.getElementById('strange-detail-content');
-            const placeholder = document.getElementById('strange-detail-placeholder');
-            if (detailContent) detailContent.classList.add('hidden');
-            if (placeholder) placeholder.classList.remove('hidden');
-            return;
-        }
-
-        // Рендерим список в сайдбар
-        sidebar.innerHTML = phrases.map((p, idx) => {
-            const isActive = state.selectedStrangeId === p.id;
-            const accName = p.account_name || `ID ${p.vk_id}`;
-            const dateStr = new Date(p.created_at + 'Z').toLocaleString('ru-RU', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-
-            return `
-                <button class="strange-sidebar-item${isActive ? ' active' : ''}" data-id="${p.id}" style="width: 100%; text-align: left; background: ${isActive ? 'var(--color-primary-glow)' : 'rgba(255, 255, 255, 0.02)'}; border: 1px solid ${isActive ? 'var(--color-primary)' : 'var(--border-glass)'}; border-radius: 8px; padding: 10px; color: var(--color-text-main); cursor: pointer; transition: all 0.2s ease; display: flex; flex-direction: column; gap: 4px; outline: none; position: relative; margin-bottom: 4px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                        <span class="strange-sidebar-num" style="font-weight: 700; color: var(--color-primary-hover); font-size: 11px;">#${idx + 1}</span>
-                        <span style="color: var(--color-text-muted); font-size: 10px;">${dateStr}</span>
-                    </div>
-                    <div style="font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">💬 ${escapeHtml(p.command)}</div>
-                    <div style="font-size: 10px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">🐸 ${escapeHtml(accName)}</div>
-                </button>
-            `;
-        }).join('');
-
-        // Навешиваем клик на элементы сайдбара
-        sidebar.querySelectorAll('.strange-sidebar-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const phraseId = parseInt(item.dataset.id, 10);
-                const phrase = phrases.find(p => p.id === phraseId);
-                if (!phrase) return;
-
-                // Снимаем active со всех
-                sidebar.querySelectorAll('.strange-sidebar-item').forEach(el => el.classList.remove('active'));
-                // Добавляем active на текущий
-                item.classList.add('active');
-
-                // Сохраняем выбранный ID
-                state.selectedStrangeId = phrase.id;
-
-                // Отображаем детальный вид
-                const detailContent = document.getElementById('strange-detail-content');
-                const placeholder = document.getElementById('strange-detail-placeholder');
-                if (detailContent) detailContent.classList.remove('hidden');
-                if (placeholder) placeholder.classList.add('hidden');
-
-                // Заполняем сырой ответ
-                const rawResponseEl = document.getElementById('strange-raw-response');
-                if (rawResponseEl) {
-                    rawResponseEl.textContent = phrase.response;
-                }
-
-                // Заполняем объяснение
-                const explanationBoxEl = document.getElementById('strange-explanation-box');
-                if (explanationBoxEl) {
-                    explanationBoxEl.innerHTML = generateExplanation(phrase.command, phrase.response);
-                }
-            });
-        });
-
-        // Если у нас уже был выбран ID и он есть в списке, обновим отображение (например, при авто-обновлении)
-        if (state.selectedStrangeId) {
-            const stillExists = phrases.some(p => p.id === state.selectedStrangeId);
-            if (stillExists) {
-                const selectedPhrase = phrases.find(p => p.id === state.selectedStrangeId);
-                const activeItem = sidebar.querySelector(`.strange-sidebar-item[data-id="${state.selectedStrangeId}"]`);
-                if (activeItem) {
-                    activeItem.classList.add('active');
-                }
-                
-                // Заполняем на всякий случай
-                const rawResponseEl = document.getElementById('strange-raw-response');
-                if (rawResponseEl) rawResponseEl.textContent = selectedPhrase.response;
-
-                const explanationBoxEl = document.getElementById('strange-explanation-box');
-                if (explanationBoxEl) {
-                    explanationBoxEl.innerHTML = generateExplanation(selectedPhrase.command, selectedPhrase.response);
-                }
-            } else {
-                state.selectedStrangeId = null;
-                const detailContent = document.getElementById('strange-detail-content');
-                const placeholder = document.getElementById('strange-detail-placeholder');
-                if (detailContent) detailContent.classList.add('hidden');
-                if (placeholder) placeholder.classList.remove('hidden');
-            }
         }
     }
 
@@ -1251,136 +796,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('Ошибка загрузки статистики монитора:', err);
         }
-    }
-
-    async function showDebugModal() {
-        const modal = document.getElementById('debug-parser-modal-overlay');
-        if (modal) {
-            modal.classList.add('active');
-        }
-        
-        // Синхронизируем статус и счетчики монитора
-        syncMonitorStatus();
-        fetchMonitorStats();
-        
-        // Запускаем периодический опрос статистики (раз в 3 секунды)
-        if (monitorStatsInterval) clearInterval(monitorStatsInterval);
-        monitorStatsInterval = setInterval(fetchMonitorStats, 3000);
-        
-        // Запрашиваем список всех литеральных команд с бэкенда при открытии
-        try {
-            const res = await fetch('/api/debug/commands');
-            if (res.ok) {
-                allCommands = await res.json();
-                renderComboboxDropdown(allCommands);
-            }
-        } catch (err) {
-            console.error('Ошибка загрузки списка команд для отладки:', err);
-        }
-
-        // Обновляем список нераспознанных фраз при открытии модального окна
-        fetchUnrecognizedPhrases();
-    }
-
-    function renderComboboxDropdown(list) {
-        const dropdown = document.getElementById('debug-action-dropdown-list');
-        if (!dropdown) return;
-        
-        dropdown.innerHTML = "";
-        
-        // Добавляем элемент для автоопределения
-        const autoItem = document.createElement('div');
-        autoItem.className = 'combobox-dropdown-item';
-        if (!selectedCommand) autoItem.classList.add('selected');
-        autoItem.innerText = "-- Автоопределение по тексту --";
-        autoItem.dataset.value = "";
-        autoItem.addEventListener('click', () => selectComboboxValue("", "-- Автоопределение по тексту --"));
-        dropdown.appendChild(autoItem);
-        
-        list.forEach(cmd => {
-            const item = document.createElement('div');
-            item.className = 'combobox-dropdown-item';
-            if (selectedCommand === cmd) item.classList.add('selected');
-            item.innerText = cmd;
-            item.dataset.value = cmd;
-            item.addEventListener('click', () => selectComboboxValue(cmd, cmd));
-            dropdown.appendChild(item);
-        });
-    }
-
-    function selectComboboxValue(value, label) {
-        const input = document.getElementById('debug-action-input');
-        const dropdown = document.getElementById('debug-action-dropdown-list');
-        if (input) {
-            input.value = label === "-- Автоопределение по тексту --" ? "" : label;
-        }
-        selectedCommand = value;
-        if (dropdown) {
-            dropdown.classList.remove('active');
-        }
-    }
-
-    function filterCombobox(query) {
-        const cleanQuery = query.trim().toLowerCase();
-        
-        // Фильтруем команды
-        const filtered = allCommands.filter(cmd => cmd.toLowerCase().includes(cleanQuery));
-        
-        // Перерисовываем список с отфильтрованными командами
-        renderComboboxDropdown(filtered);
-    }
-
-    function closeDebugModal() {
-        // Останавливаем опрос статистики монитора
-        if (monitorStatsInterval) {
-            clearInterval(monitorStatsInterval);
-            monitorStatsInterval = null;
-        }
-
-        const modal = document.getElementById('debug-parser-modal-overlay');
-        if (modal) {
-            modal.classList.remove('active');
-        }
-        const actionInput = document.getElementById('debug-action-input');
-        const responseTextarea = document.getElementById('debug-response-text');
-        const resultOutput = document.getElementById('debug-result-output');
-        const dropdown = document.getElementById('debug-action-dropdown-list');
-        
-        selectedCommand = "";
-        if (actionInput) actionInput.value = "";
-        if (responseTextarea) responseTextarea.value = "";
-        if (resultOutput) resultOutput.innerHTML = "Готов к работе. Заполните поля 1 и 2 и нажмите кнопку «Запустить разбор».";
-        if (dropdown) dropdown.classList.remove('active');
-
-        // Сброс вкладок
-        const tabInteractiveDebug = document.getElementById('tab-interactive-debug');
-        const tabStrangePhrases = document.getElementById('tab-strange-phrases');
-        const tabPhraseTesting = document.getElementById('tab-phrase-testing');
-        const panelInteractiveDebug = document.getElementById('panel-interactive-debug');
-        const panelStrangePhrases = document.getElementById('panel-strange-phrases');
-        const panelPhraseTesting = document.getElementById('panel-phrase-testing');
-        const btnRunDebug = document.getElementById('btn-run-debug');
-        
-        if (tabInteractiveDebug && tabStrangePhrases && tabPhraseTesting && panelInteractiveDebug && panelStrangePhrases && panelPhraseTesting && btnRunDebug) {
-            tabInteractiveDebug.classList.add('active');
-            tabStrangePhrases.classList.remove('active');
-            tabPhraseTesting.classList.remove('active');
-            panelInteractiveDebug.classList.remove('hidden');
-            panelStrangePhrases.classList.add('hidden');
-            panelPhraseTesting.classList.add('hidden');
-            btnRunDebug.style.display = 'flex';
-            btnRunDebug.innerHTML = '🚀 Запустить разбор';
-        }
-        
-        // Сброс полей теста фраз
-        const accountSelect = document.getElementById('test-phrase-account-select');
-        const phraseInput = document.getElementById('test-phrase-input');
-        const rawResponseEl = document.getElementById('test-phrase-raw-response');
-        const analysisBoxEl = document.getElementById('test-phrase-analysis-box');
-        if (accountSelect) accountSelect.value = "";
-        if (phraseInput) phraseInput.value = "";
-        if (rawResponseEl) rawResponseEl.textContent = "";
-        if (analysisBoxEl) analysisBoxEl.innerHTML = "Ожидание отправки команды ВК...";
     }
 
     function showLikesProgressModal(vkId) {
@@ -2338,211 +1753,102 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${mins} мин.`;
     }
 
-    function fillTestPhraseAccountsDropdown() {
-        const select = document.getElementById('test-phrase-account-select');
-        if (!select) return;
-
-        // Фильтруем запущенные (is_active === 1) аккаунты, исключая виртуальный общий с vk_id = 0
-        const activeAccs = state.accounts.filter(a => a.is_active === 1 && a.vk_id !== 0);
-
-        select.innerHTML = '<option value="">-- Выберите запущенный аккаунт --</option>';
-        if (activeAccs.length === 0) {
-            select.innerHTML += '<option value="" disabled style="color: var(--color-danger);">⚠️ Нет активных (запущенных) аккаунтов в сети</option>';
-            return;
+    /**
+     * Вычисляет оставшееся время кулдауна в реальном времени.
+     *
+     * Принципы (см. DATAFLOW.md § "Живые таймеры"):
+     *  - Хранимое значение cooldown (в секундах) — это длительность кулдауна НА МОМЕНТ ПАРСА.
+     *  - last_updated_iso — время парса (MSK). Вычисляем elapsed = now - last_updated.
+     *  - Остаток = max(0, cooldown - elapsed). Если 0 — параметр готов.
+     *  - UI только показывает уменьшение. Реальная смена статуса в БД происходит при новом парсе
+     *    (команда приоритетнее расчётных данных) или фоновой задачей при обнулении.
+     *
+     * @returns {text, isReady, hasTimer}
+     */
+    function getLiveCooldownText(cooldownSec, lastUpdatedIso) {
+        if (!cooldownSec || cooldownSec <= 0) {
+            return { text: 'Готово', isReady: true, hasTimer: false };
         }
-
-        activeAccs.forEach(acc => {
-            const opt = document.createElement('option');
-            opt.value = acc.vk_id;
-            opt.innerText = `🐸 ${acc.name} (ID: ${acc.vk_id})`;
-            select.appendChild(opt);
-        });
+        // Если нет last_updated — показываем статичное значение (новые данные ещё не пришли)
+        if (!lastUpdatedIso) {
+            return { text: formatCooldown(cooldownSec), isReady: false, hasTimer: false };
+        }
+        const lastUpdated = new Date(lastUpdatedIso);
+        const now = new Date();
+        const elapsedSec = Math.floor((now - lastUpdated) / 1000);
+        const remaining = cooldownSec - elapsedSec;
+        if (remaining <= 0) {
+            return { text: 'Готово', isReady: true, hasTimer: false };
+        }
+        // Формат с секундами для живого таймера
+        const hrs = Math.floor(remaining / 3600);
+        const mins = Math.floor((remaining % 3600) / 60);
+        const secs = remaining % 60;
+        let text;
+        if (hrs > 0) {
+            text = `${hrs}ч ${mins}м ${secs}с`;
+        } else if (mins > 0) {
+            text = `${mins}м ${secs}с`;
+        } else {
+            text = `${secs}с`;
+        }
+        return { text, isReady: false, hasTimer: true };
     }
 
-    async function handlePhraseTestingSubmit() {
-        const accountSelect = document.getElementById('test-phrase-account-select');
-        const phraseInput = document.getElementById('test-phrase-input');
-        const rawResponseEl = document.getElementById('test-phrase-raw-response');
-        const analysisBoxEl = document.getElementById('test-phrase-analysis-box');
-        const btnRunDebug = document.getElementById('btn-run-debug');
-
-        if (!accountSelect || !phraseInput || !rawResponseEl || !analysisBoxEl) return;
-
-        const vkIdVal = accountSelect.value;
-        const phrase = phraseInput.value.trim();
-
-        if (!vkIdVal) {
-            showToast('⚠️ Пожалуйста, выберите активный аккаунт', 'error');
-            return;
-        }
-        if (!phrase) {
-            showToast('⚠️ Пожалуйста, введите фразу для отправки', 'error');
-            return;
-        }
-
-        // Блокируем кнопку на время теста
-        if (btnRunDebug) {
-            btnRunDebug.disabled = true;
-            btnRunDebug.innerHTML = '⏳ Ожидаем ответ Жабабота...';
-        }
-
-        rawResponseEl.textContent = 'Отправка команды в чат ВК и ожидание ответа от Жабабота...';
-        analysisBoxEl.innerHTML = `<div style="color: var(--color-text-muted);">Бот отправил команду и слушает входящий LongPoll поток. Это займет несколько секунд...</div>`;
-
-        try {
-            const response = await fetch('/api/debug/test_phrase', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    vk_id: parseInt(vkIdVal, 10),
-                    message: phrase
-                })
-            });
-
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.detail || 'Не удалось выполнить тест фразы');
-            }
-
-            const data = await response.json();
-
-            if (data.success === false) {
-                // Превышено время ожидания ответа
-                rawResponseEl.textContent = '❌ Ответ от Жабабота не получен.';
-                analysisBoxEl.innerHTML = `<div style="color: var(--color-danger); font-weight: bold; margin-bottom: 8px;">⚠️ Ошибка: ${escapeHtml(data.error)}</div>
-                <div style="font-size: 11.5px; color: var(--color-text-muted); line-height: 1.4;">Возможные причины:
-                <br>• Жабабот завис или временно недоступен в ВК.
-                <br>• Выбранный аккаунт не имеет доступа к чату или чат-ID настроен неверно.
-                <br>• Команда была проигнорирована Жабаботом (например, из-за кулдауна на его стороне).
-                <br>• На аккаунте превышен лимит запросов в ВК.</div>`;
-                return;
-            }
-
-            // Выводим сырой ответ Жабабота
-            rawResponseEl.textContent = data.response;
-
-            // Выводим детальный анализ
-            let html = '';
-            if (data.matched) {
-                html += `
-                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                        <div style="color: var(--color-success); font-weight: bold; font-size: 13px;">✅ Фраза успешно распознана!</div>
-                        <div style="font-size: 12px; color: var(--color-text-main); line-height: 1.4;">
-                            Действие: <b style="color: var(--color-primary-hover);">${escapeHtml(data.action_type)}</b><br>
-                            <div style="white-space: pre-wrap; font-family: sans-serif; font-size: 12px; line-height: 1.5; margin-top: 6px; padding: 8px; background: rgba(255,255,255,0.01); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">${escapeHtml(data.explanation)}</div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-glass); border-radius: 6px; padding: 8px; margin-top: 4px;">
-                            <b style="font-size: 11px; color: var(--color-warning);">Спарсенные параметры для БД:</b>
-                            <pre style="margin: 4px 0 0 0; font-family: monospace; font-size: 11px; color: #00e676; overflow-x: auto;">${escapeHtml(JSON.stringify(data.parsed_fields, null, 2))}</pre>
-                        </div>
-                    </div>
-                `;
+    /**
+     * Универсальный рендер строки кулдауна (работа/кормёжка/откорм/подземелье/арена).
+     * Берёт данные из acc.toad_state: *_info (статус) + *_cooldown (секунды) + last_updated_iso.
+     */
+    function renderCooldownRow(elementId, acc, state, infoKey, cooldownKey, emoji, readyLabel, idleLabel) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        let val;
+        if (acc.vk_id === 0) {
+            const total = state.accounts.length;
+            const active = state.accounts.filter(a => a.toad_state && a.toad_state[cooldownKey] > 0).length;
+            val = total > 0 ? `${emoji} В кулдауне: ${active} / ${total}` : 'Нет аккаунтов';
+        } else {
+            const ts = acc.toad_state;
+            const info = ts && ts[infoKey] ? ts[infoKey] : null;
+            const cd = (ts && ts[cooldownKey]) ? ts[cooldownKey] : 0;
+            if (cd > 0) {
+                const live = getLiveCooldownText(cd, ts && ts.last_updated_iso ? ts.last_updated_iso : null);
+                val = `${emoji} ${live.text}`;
+            } else if (info === 'ready' || (info === null && cd === 0)) {
+                val = `${emoji} ${readyLabel}`;
+            } else if (info) {
+                val = `${emoji} ${info}`;
             } else {
-                html += `
-                    <div style="display: flex; flex-direction: column; gap: 6px;">
-                        <div style="color: var(--color-danger); font-weight: bold; font-size: 13px;">❌ Фраза не распознана шаблонами Базы Знаний</div>
-                        <div style="font-size: 12px; color: var(--color-text-main); line-height: 1.4;">
-                            <div style="white-space: pre-wrap; font-family: sans-serif; font-size: 12px; line-height: 1.5; margin-top: 6px; padding: 8px; background: rgba(255,255,255,0.01); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">${escapeHtml(data.explanation)}</div>
-                        </div>
-                        <div style="background: rgba(130, 39, 227, 0.04); border: 1px dashed rgba(130, 39, 227, 0.3); border-radius: 6px; padding: 8px; margin-top: 4px;">
-                            <span style="font-size: 11px; color: var(--color-text-muted);">💡 <b>Как исправить:</b> Вы можете перейти во вкладку <b>«Странные фразы»</b>, где эта запись уже появилась, и прочитать подробный разбор того, каких полей или эмодзи не хватило парсеру для этой команды.</span>
-                        </div>
-                    </div>
-                `;
-                // Обновим список странных фраз в бэкграунде
-                fetchUnrecognizedPhrases();
-            }
-
-            analysisBoxEl.innerHTML = html;
-            showToast('Тест фразы завершен', 'success');
-
-        } catch (err) {
-            console.error(err);
-            rawResponseEl.textContent = '❌ Ошибка при выполнении теста.';
-            analysisBoxEl.innerHTML = `<div style="color: var(--color-danger); font-weight: bold;">⚠️ Исключение бэкенда: ${escapeHtml(err.message)}</div>`;
-            showToast('❌ Ошибка при выполнении теста', 'error');
-        } finally {
-            if (btnRunDebug) {
-                btnRunDebug.disabled = false;
-                btnRunDebug.innerHTML = '💬 Отправить и проверить ВК';
+                val = `${emoji} ${idleLabel}`;
             }
         }
+        if (el.textContent !== val) el.textContent = val;
     }
 
-    // Отправка формы отладки парсера ответов
-    async function handleRunDebugSubmit() {
-        const tabPhraseTesting = document.getElementById('tab-phrase-testing');
-        if (tabPhraseTesting && tabPhraseTesting.classList.contains('active')) {
-            handlePhraseTestingSubmit();
-            return;
-        }
+    /**
+     * Тик каждую секунду: перерисовывает только таймеры кулдаунов для выбранного аккаунта.
+     * Не трогает остальные данные — они обновляются через fetchAccounts (каждые 3 сек).
+     */
+    function tickLiveTimers() {
+        if (!state || !state.selectedAccountId) return;
+        const acc = state.accounts.find(a => a.vk_id === state.selectedAccountId);
+        if (!acc || !acc.toad_state) return;
+        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе');
+        renderCooldownRow('stat-row-feed-info', acc, state, 'feed_info', 'feed_cooldown', '🍽️', 'Можно покормить', 'Не кормлена');
+        renderCooldownRow('stat-row-fattening', acc, state, 'fattening', 'fattening_cooldown', '🐷', 'Можно откормить', 'Нет');
+        renderCooldownRow('stat-row-dungeon', acc, state, 'dungeon_info', 'dungeon_cooldown', '👹', 'Доступно', 'Нет данных');
+        renderCooldownRow('stat-row-arena', acc, state, 'arena_info', 'arena_cooldown', '⚔️', 'Можно на арену', 'Нет данных');
+    }
 
-        const actionInput = document.getElementById('debug-action-input');
-        const responseTextarea = document.getElementById('debug-response-text');
-        const resultOutput = document.getElementById('debug-result-output');
-        
-        if (!responseTextarea || !resultOutput) return;
-        
-        const text = responseTextarea.value.trim();
-        // Используем либо выбранное из комбобокса, либо введенный вручную текст
-        const overrideAction = selectedCommand || (actionInput ? actionInput.value.trim() : "");
-        
-        if (!text) {
-            showToast('⚠️ Пожалуйста, введите текст ответа бота', 'error');
-            return;
-        }
-        
-        resultOutput.innerHTML = `<span style="color: var(--color-text-muted);">Выполняется разбор...</span>`;
-        
-        try {
-            const response = await fetch('/api/debug/parse', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text: text,
-                    override_action: overrideAction
-                })
-            });
-            
-            if (!response.ok) throw new Error('Не удалось выполнить разбор');
-            
-            const data = await response.json();
-            
-            // Форматируем красивый JSON-вывод с цветной подсветкой
-            let outputHtml = '';
-            
-            if (data.matched) {
-                outputHtml += `<span style="color: var(--color-success); font-weight: bold;">✅ Успешное совпадение шаблона!</span>\n`;
-                outputHtml += `<span style="color: var(--color-primary-hover);">Определенное действие (action):</span> <strong style="color: var(--color-text-main);">${data.effective_action || 'Не определено'}</strong>\n`;
-                if (data.matched_pattern_action && data.matched_pattern_action !== data.effective_action) {
-                    outputHtml += `<span style="color: var(--color-text-muted);">Совпавший паттерн KB:</span> <strong style="color: var(--color-text-main);">${data.matched_pattern_action}</strong>\n`;
-                }
-                
-                outputHtml += `\n<span style="color: var(--color-warning); font-weight: bold;">📝 Поля, которые обновятся в БД:</span>\n`;
-                if (data.parsed_fields && Object.keys(data.parsed_fields).length > 0) {
-                    for (const [key, value] of Object.entries(data.parsed_fields)) {
-                        outputHtml += `  • <span style="color: #00e676;">${key}</span>: <span style="color: var(--color-text-main);">${JSON.stringify(value)}</span>\n`;
-                    }
-                } else {
-                    outputHtml += `  <span style="color: var(--color-text-muted);">[Нет полей для обновления в БД]</span>\n`;
-                }
-                
-                if (data.regex_groups && Object.keys(data.regex_groups).length > 0) {
-                    outputHtml += `\n<span style="color: #00b0ff; font-weight: bold;">🔍 Захваченные регулярные группы (regex groups):</span>\n`;
-                    for (const [key, value] of Object.entries(data.regex_groups)) {
-                        outputHtml += `  • <span style="color: #82b1ff;">${key}</span>: <span style="color: var(--color-text-main);">${JSON.stringify(value)}</span>\n`;
-                    }
-                }
-            } else {
-                outputHtml += `<span style="color: var(--color-error); font-weight: bold;">❌ Ни один шаблон из Базы Знаний не совпал.</span>\n`;
-                outputHtml += `<span style="color: var(--color-text-muted);">Парсер не среагирует на это сообщение в чате.</span>\n`;
-            }
-            
-            resultOutput.innerHTML = outputHtml;
-        } catch (error) {
-            console.error('Ошибка отладки парсера:', error);
-            resultOutput.innerHTML = `<span style="color: var(--color-error); font-weight: bold;">❌ Ошибка при отправке запроса разбора.</span>\n<span style="color: var(--color-text-muted);">${error.message}</span>`;
-            showToast('❌ Ошибка связи с сервером', 'error');
+    function startLiveTimers() {
+        if (liveTimersInterval) return; // уже запущен
+        liveTimersInterval = setInterval(tickLiveTimers, 1000);
+    }
+
+    function stopLiveTimers() {
+        if (liveTimersInterval) {
+            clearInterval(liveTimersInterval);
+            liveTimersInterval = null;
         }
     }
 
@@ -2656,8 +1962,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         updateDetailPanelData(acc); // Бесшовное обновление данных
                     }
+                    startLiveTimers();
                 }
             } else {
+                stopLiveTimers();
                 renderDetailPanel(); // Отрендерит плейсхолдер
             }
             
@@ -2911,14 +2219,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 nameFontSize = '12px';
             }
 
-            // Корона для прайм-статуса
-            const isPrime = acc.is_prime === 1;
-            const crownClass = isPrime ? 'crown' : 'crown transparent';
+            // Класс уровня аккаунта для обводки аватарки:
+            // Classic — синяя, Premium/Premium+ — золотая
+            const tierClass = acc.is_prime === 1 ? 'avatar-tier-premium' : 'avatar-tier-classic';
 
             item.innerHTML = `
                 <div class="account-item-profile">
                     <div class="sidebar-toggle-btn ${acc.is_active === 1 ? 'active' : 'inactive'}" title="${acc.is_active === 1 ? 'Остановить бота' : 'Запустить бота'}"></div>
-                    <div class="account-item-avatar" style="font-size: ${lvlFontSize};">${lvl}<span class="${crownClass}">👑</span></div>
+                    <div class="account-item-avatar ${tierClass}" style="font-size: ${lvlFontSize};">${lvl}</div>
                     <div class="account-item-info">
                         <h4 style="font-size: ${nameFontSize};">${escapeHtml(nameVal)}</h4>
                         <span>ID: ${acc.vk_id}</span>
@@ -3058,7 +2366,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="tab-btn ${state.activeTab === 'logs' ? 'active' : ''}" data-tab="logs">📝 Лог</button>
                     <button class="tab-btn ${state.activeTab === 'settings' ? 'active' : ''}" data-tab="settings">⚙️ Настройки</button>
                     <button class="tab-btn monitor-tab-btn ${state.monitorHasFailed ? 'has-failed' : ''}" id="btn-open-monitor" style="margin-left: auto; margin-right: 8px; background: #4a5568; border: 1px solid #4a5568; color: #fff !important; font-weight: 600;">Мониторинг</button>
-                    <button class="tab-btn debug-btn" id="btn-open-debug">Отладка</button>
                 </div>
 
                 <!-- Содержимое вкладок -->
@@ -3129,6 +2436,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Откорм</span>
                                                 <span class="stat-value" id="stat-row-fattening">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Подземелье</span>
+                                                <span class="stat-value" id="stat-row-dungeon">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Арена</span>
+                                                <span class="stat-value" id="stat-row-arena">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3552,6 +2867,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Сразу заполняем подвкладки Статистики и Расписание актуальными значениями
         updateDetailPanelData(acc);
         renderSchedule();
+        startLiveTimers();
     }
 
     // Привязка событий внутри панели деталей
@@ -3749,12 +3065,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Клик по кнопке Отладка
-        const btnOpenDebug = dashboardDetailsLayout.querySelector('#btn-open-debug');
-        if (btnOpenDebug) {
-            btnOpenDebug.addEventListener('click', showDebugModal);
-        }
-
 
 
         // Клик по кнопке Мониторинг
@@ -3941,48 +3251,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowMood.textContent !== val) rowMood.textContent = val;
         }
 
-        // Новые характеристики в Жабе:
-        const rowWorkInfo = document.getElementById('stat-row-work-info');
-        if (rowWorkInfo) {
-            let val;
-            if (acc.vk_id === 0) {
-                const total = state.accounts.length;
-                const working = state.accounts.filter(a => a.toad_state && a.toad_state.work_cooldown > 0).length;
-                val = total > 0 ? `💼 На работе: ${working} / ${total}` : 'Нет аккаунтов';
-            } else {
-                const workCd = (acc.toad_state && acc.toad_state.work_cooldown) ? acc.toad_state.work_cooldown : 0;
-                if (workCd > 0) {
-                    val = `💼 ${formatCooldown(workCd * 60)}`;
-                } else {
-                    val = '💼 Не на работе';
-                }
-            }
-            if (rowWorkInfo.textContent !== val) rowWorkInfo.textContent = val;
-        }
-
-        const rowFeedInfo = document.getElementById('stat-row-feed-info');
-        if (rowFeedInfo) {
-            let val;
-            if (acc.vk_id === 0) {
-                const total = state.accounts.length;
-                const fed = state.accounts.filter(a => a.toad_state && a.toad_state.feed_cooldown > 0).length;
-                val = total > 0 ? `🍽️ Кормятся: ${fed} / ${total}` : 'Нет аккаунтов';
-            } else {
-                const feedCd = (acc.toad_state && acc.toad_state.feed_cooldown) ? acc.toad_state.feed_cooldown : 0;
-                if (feedCd > 0) {
-                    val = `🍽️ ${formatCooldown(feedCd * 60)}`;
-                } else {
-                    val = '🍽️ Не кормлена';
-                }
-            }
-            if (rowFeedInfo.textContent !== val) rowFeedInfo.textContent = val;
-        }
-
-        const rowFattening = document.getElementById('stat-row-fattening');
-        if (rowFattening) {
-            const val = acc.fattening || 'Нет';
-            if (rowFattening.textContent !== val) rowFattening.textContent = val;
-        }
+        // Живые таймеры кулдаунов (тик каждую секунду через liveTimersInterval)
+        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе');
+        renderCooldownRow('stat-row-feed-info', acc, state, 'feed_info', 'feed_cooldown', '🍽️', 'Можно покормить', 'Не кормлена');
+        renderCooldownRow('stat-row-fattening', acc, state, 'fattening', 'fattening_cooldown', '🐷', 'Можно откормить', 'Нет');
+        renderCooldownRow('stat-row-dungeon', acc, state, 'dungeon_info', 'dungeon_cooldown', '👹', 'Доступно', 'Нет данных');
+        renderCooldownRow('stat-row-arena', acc, state, 'arena_info', 'arena_cooldown', '⚔️', 'Можно на арену', 'Нет данных');
 
         const rowWins = document.getElementById('stat-row-wins');
         if (rowWins) {

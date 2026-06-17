@@ -56,6 +56,8 @@
 | **Инвентарь: крафт** | `cr_puzzle`, `cr_link`, `cr_stone`, `cr_mask`, `cr_paper`, `cr_lightning` | `parse_inventory` |
 | **Метаданные** | `vk_id` (PK), `last_updated` | Автоматически |
 
+> **Единицы кулдаунов:** все `*_cooldown` колонки (`work_cooldown`, `feed_cooldown`, `fattening_cooldown`, `dungeon_cooldown`, `arena_cooldown`) хранятся в **СЕКУНДАХ** (INTEGER). `last_updated` — время парса в формате `DD.MM.YYYY HH:MM:SS` (MSK). Вместе они позволяют считать остаток кулдауна в реальном времени (см. §6.1).
+
 Полная схема: `db_manager.py:851-900`.
 
 ---
@@ -128,15 +130,60 @@ async def save_toad_state(self, vk_id: int, data: dict) -> None:
 
 ## 6. Как UI получает данные
 
-`get_all_accounts` (`db_manager.py:1211-1255`):
+`get_all_accounts` (`db_manager.py:1211-1278`):
 
 1. `SELECT a.*, s.* FROM accounts a LEFT JOIN settings s ON a.vk_id = s.vk_id` → bot.db
 2. `SELECT * FROM toad_states` → recognition.db
 3. Для каждого аккаунта: `acc["toad_state"] = toad_states[vk_id]` (или `None`)
+4. **Обнуление просроченных кулдаунов в памяти:** если `cooldown` (секунды) уже истёк по `last_updated` → в выдаче зануляется `cooldown = 0` и `*_info = "ready"`. БД физически не трогается (см. §6.1).
 
 В `app.js` данные доступны как:
 - **accounts-поля:** `acc.bugs`, `acc.mood`, `acc.wins`, `acc.is_prime` и т.д.
 - **toad_state-поля:** `acc.toad_state.level`, `acc.toad_state.state`, `acc.toad_state.work_cooldown`, `acc.toad_state.feed_cooldown` и т.д.
+- **last_updated_iso:** `acc.toad_state.last_updated_iso` (ISO-формат `YYYY-MM-DDTHH:MM:SS`) — для расчёта живых таймеров.
+
+---
+
+## 6.1. Живые таймеры кулдаунов
+
+Таймеры кулдаунов тикают в реальном времени (до секунды) в UI. Это требует единого понимания правил — они зафиксированы здесь и должны соблюдаться при любых правках.
+
+### 6.1.1. Принципы
+
+1. **Парсер всегда приоритетнее расчётных данных.** Если команда «Жаба инфо» прописана с аккаунта и распознана — её данные затирают наши текущие. Это обеспечивается `COALESCE` в `save_toad_state` (None не перезаписывает) и тем, что распознанные значения всегда не-None.
+2. **Правило погрешности вверх (+59с).** Если игра пишет «1ч 29м», парсер сохраняет это как `1ч 29м 59с` (`_parse_duration` добавляет 59 секунд). Таймер в UI чуть дольше тикает, но не покажет «готов» раньше фактической готовности в игре.
+3. **Тикает только UI.** Физически БД не обновляется каждую секунду. `tickLiveTimers()` в `app.js` пересчитывает `remaining = cooldown - (now - last_updated)` и перерисовывает только строки кулдаунов.
+4. **Обнуление → `ready`.** При обнулении таймера параметр переходит в состояние готовности. Для работы есть промежуточная стадия `claim_pending`, но **пока что везде `ready`** (см. таблицу переходов ниже).
+5. **Просроченные кулдауны обнуляются в памяти** при `get_all_accounts` (см. §6, шаг 4) — это синхронизирует статус `*_info` для UI даже если фоновый пересчёт не сработал.
+
+### 6.1.2. Этапы и переходы по параметрам
+
+| Параметр | Этап с таймером | При обнулении → | Колонки БД |
+|---|---|---|---|
+| **Работа** | `working` (Завершить через N) | `claim_pending` *(пока: `ready`)* | `work_info`, `work_cooldown` |
+| **Работа** | `cooldown` (Доступна через N) | `ready` | `work_info`, `work_cooldown` |
+| **Кормёжка** | `cooldown` (Покормить через N) | `ready` | `feed_info`, `feed_cooldown` |
+| **Откорм** | `cooldown` (Откормить через N) | `ready` | `fattening`, `fattening_cooldown` |
+| **Подземелье** | `cooldown` (Восстановится через N) | `ready` | `dungeon_info`, `dungeon_cooldown` |
+| **Арена** | `cooldown` (До нападения N) | `ready` | `arena_info`, `arena_cooldown` |
+
+### 6.1.3. Полный цикл работы (для справки)
+
+`ready` → `going` (топает на работу) → `working` (Завершить через N) → `claim_pending` (Завершай работу) → `cooldown` (Доступна через N) → `ready`
+
+> Все 5 этапов работы прописаны в посеве правил БД (`db_manager.py:545-562`) и в парсере `toad_info_parser.py:PATTERNS_WORK`. Этап `claim_pending` существует в распознавании, но при обнулении таймера `working` пока ставится `ready` (упрощение).
+
+### 6.1.4. Где что в коде
+
+| Файл | Что |
+|---|---|
+| `toad_info_parser.py` | `_parse_duration()` — секунды + 59с буфер; arena парсит минуты→секунды |
+| `db_manager.py:get_all_accounts` | Обнуление просроченных кулдаунов в памяти при выдаче |
+| `db_manager.py` (миграция) | Одноразовый сброс старых минутных значений в NULL при первом запуске после обновления |
+| `app.js:getLiveCooldownText` | Расчёт `remaining = cooldown - (now - last_updated)`, формат `Чч Мм Сс` |
+| `app.js:renderCooldownRow` | Универсальный рендер строки кулдауна |
+| `app.js:tickLiveTimers` | Тик каждую секунду, перерисовка таймеров выбранного аккаунта |
+| `app.js:startLiveTimers/stopLiveTimers` | Запуск/остановка интервала (1с) при открытии/закрытии панели деталей |
 
 ---
 

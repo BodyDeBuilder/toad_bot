@@ -1,7 +1,7 @@
 import sqlite3
 import logging
 import contextlib
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import aiosqlite
@@ -949,6 +949,24 @@ class DBManager:
             except Exception as e:
                 logger.error(f"Ошибка при очистке имен в toad_states: {e}")
 
+            # --- МИГРАЦИЯ: кулдауны минут -> секунд ---
+            # Раньше work_cooldown/feed_cooldown/... хранились в МИНУТАХ (INTEGER).
+            # Теперь храним в СЕКУНДАХ, чтобы таймеры тикали до секунды в UI.
+            # Старые минутные значения сбрасываем в NULL: они устарели быстро,
+            # а новый парс при первом распознавании команды запишет корректные секунды.
+            try:
+                await r_conn.execute("""
+                    UPDATE toad_states SET
+                        work_cooldown = NULL,
+                        feed_cooldown = NULL,
+                        fattening_cooldown = NULL,
+                        dungeon_cooldown = NULL,
+                        arena_cooldown = NULL
+                """)
+                logger.info("Миграция кулдаунов: старые минутные значения сброшены в NULL (теперь хранятся в секундах).")
+            except Exception as e:
+                logger.error(f"Ошибка при миграции кулдаунов: {e}")
+
             await r_conn.commit()
                     
         logger.info("Инициализация базы данных успешно завершена.")
@@ -1233,21 +1251,44 @@ class DBManager:
         except Exception as e:
             logger.error(f"Ошибка при загрузке состояний жаб из recognition.db: {e}")
 
-        # 3. Объединяем данные
+        # 3. Объединяем данные + обнуление просроченных кулдаунов в памяти
+        now_dt = datetime.now(timezone(timedelta(hours=3)))
+        cooldown_fields = [
+            ("work_info", "work_cooldown"),
+            ("feed_info", "feed_cooldown"),
+            ("fattening", "fattening_cooldown"),
+            ("dungeon_info", "dungeon_cooldown"),
+            ("arena_info", "arena_cooldown"),
+        ]
         for acc in accounts:
             vk_id = acc["vk_id"]
             state_data = toad_states.get(vk_id)
             if state_data:
                 lu = state_data.get("last_updated")
+                last_updated_dt = None
                 if lu:
                     try:
-                        from datetime import datetime
-                        dt = datetime.strptime(lu, "%d.%m.%Y %H:%M:%S")
-                        state_data["last_updated_iso"] = dt.strftime("%Y-%m-%dT%H:%M:%S")
+                        last_updated_dt = datetime.strptime(lu, "%d.%m.%Y %H:%M:%S").replace(
+                            tzinfo=timezone(timedelta(hours=3))
+                        )
+                        state_data["last_updated_iso"] = last_updated_dt.strftime("%Y-%m-%dT%H:%M:%S")
                     except Exception:
                         state_data["last_updated_iso"] = None
                 else:
                     state_data["last_updated_iso"] = None
+
+                # Если кулдаун истёк по времени — зануляем в памяти (БД не трогаем).
+                # При следующем парсе реальные данные перезапишут (парс приоритетнее).
+                if last_updated_dt:
+                    elapsed_sec = int((now_dt - last_updated_dt).total_seconds())
+                    for info_key, cd_key in cooldown_fields:
+                        cd = state_data.get(cd_key)
+                        if cd is not None and isinstance(cd, (int, float)) and cd > 0 and elapsed_sec >= cd:
+                            state_data[cd_key] = 0
+                            if info_key == "work_info" and state_data.get(info_key) == "working":
+                                state_data[info_key] = "claim_pending"
+                            else:
+                                state_data[info_key] = "ready"
                 acc["toad_state"] = state_data
             else:
                 acc["toad_state"] = None
