@@ -1799,7 +1799,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * Универсальный рендер строки кулдауна (работа/кормёжка/откорм/подземелье/арена).
      * Берёт данные из acc.toad_state: *_info (статус) + *_cooldown (секунды) + last_updated_iso.
      */
-    function renderCooldownRow(elementId, acc, state, infoKey, cooldownKey, emoji, readyLabel, idleLabel) {
+    function renderCooldownRow(elementId, acc, state, infoKey, cooldownKey, emoji, readyLabel, idleLabel, statusLabels) {
         const el = document.getElementById(elementId);
         if (!el) return;
         let val;
@@ -1813,7 +1813,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const cd = (ts && ts[cooldownKey]) ? ts[cooldownKey] : 0;
             if (cd > 0) {
                 const live = getLiveCooldownText(cd, ts && ts.last_updated_iso ? ts.last_updated_iso : null);
-                val = `${emoji} ${live.text}`;
+                const prefix = (statusLabels && statusLabels[info]) ? statusLabels[info] : '';
+                val = `${emoji} ${prefix}${prefix ? ' ' : ''}${live.text}`;
             } else if (info === 'ready' || (info === null && cd === 0)) {
                 val = `${emoji} ${readyLabel}`;
             } else if (info) {
@@ -1833,7 +1834,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state || !state.selectedAccountId) return;
         const acc = state.accounts.find(a => a.vk_id === state.selectedAccountId);
         if (!acc || !acc.toad_state) return;
-        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе');
+        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе', { cooldown: 'Работа через', working: 'На работе еще' });
         renderCooldownRow('stat-row-feed-info', acc, state, 'feed_info', 'feed_cooldown', '🍽️', 'Можно покормить', 'Не кормлена');
         renderCooldownRow('stat-row-fattening', acc, state, 'fattening', 'fattening_cooldown', '🐷', 'Можно откормить', 'Нет');
         renderCooldownRow('stat-row-dungeon', acc, state, 'dungeon_info', 'dungeon_cooldown', '👹', 'Доступно', 'Нет данных');
@@ -3252,7 +3253,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Живые таймеры кулдаунов (тик каждую секунду через liveTimersInterval)
-        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе');
+        renderCooldownRow('stat-row-work-info', acc, state, 'work_info', 'work_cooldown', '💼', 'Можно работать', 'Не на работе', { cooldown: 'Работа через', working: 'На работе еще' });
         renderCooldownRow('stat-row-feed-info', acc, state, 'feed_info', 'feed_cooldown', '🍽️', 'Можно покормить', 'Не кормлена');
         renderCooldownRow('stat-row-fattening', acc, state, 'fattening', 'fattening_cooldown', '🐷', 'Можно откормить', 'Нет');
         renderCooldownRow('stat-row-dungeon', acc, state, 'dungeon_info', 'dungeon_cooldown', '👹', 'Доступно', 'Нет данных');
