@@ -2613,7 +2613,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         bugs: state.accounts.reduce((sum, a) => sum + (a.bugs || 0), 0),
                         mood: state.accounts.reduce((sum, a) => sum + (a.mood || 0), 0),
                         class_name: "Все классы",
-                        class_level: state.accounts.reduce((sum, a) => sum + (a.class_level || 0), 0),
+                        class_level: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.level) || a.class_level || 0), 0),
                         chat_id: null,
                         wins: state.accounts.reduce((sum, a) => sum + (a.wins || 0), 0),
                         losses: state.accounts.reduce((sum, a) => sum + (a.losses || 0), 0),
@@ -2621,7 +2621,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         work_info: state.accounts.filter(a => a.status === 'working').length + " на работе",
                         feed_info: state.accounts.filter(a => a.feed_info && (a.feed_info.includes('Покормлена') || a.feed_info === 'well-fed')).length + " покормлено",
                         fattening: state.accounts.filter(a => a.fattening === 'Да').length + " на откорме",
-                        positions: "Сводные",
                         partner: state.accounts.filter(a => a.partner && a.partner !== 'Нет').length + " в браке",
                         marriage_days: state.accounts.reduce((sum, a) => sum + (a.marriage_days || 0), 0),
                         froglet: state.accounts.filter(a => a.froglet && a.froglet !== 'Нет').length + " жабят",
@@ -2893,18 +2892,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusClass = acc.status === 'working' ? 'working' : 'idle';
             }
             
+            // Вычисляем уровень жабы (берем сначала из toad_state, потом из class_level)
+            const lvl = (acc.toad_state && acc.toad_state.level) ? acc.toad_state.level : (acc.class_level || '?');
+            const lvlStr = String(lvl);
+            let lvlFontSize = '15px';
+            if (lvlStr.length >= 3) {
+                lvlFontSize = '11px';
+            } else if (lvlStr.length === 2) {
+                lvlFontSize = '13px';
+            }
+
+            // Вычисляем размер шрифта для имени жабы, чтобы помещалось до 20 символов
+            const nameVal = acc.name || `ID: ${acc.vk_id}`;
+            let nameFontSize = '13.5px';
+            if (nameVal.length > 18) {
+                nameFontSize = '11px';
+            } else if (nameVal.length > 14) {
+                nameFontSize = '12px';
+            }
+
+            // Корона для прайм-статуса
+            const isPrime = acc.is_prime === 1;
+            const crownClass = isPrime ? 'crown' : 'crown transparent';
+
             item.innerHTML = `
                 <div class="account-item-profile">
                     <div class="sidebar-toggle-btn ${acc.is_active === 1 ? 'active' : 'inactive'}" title="${acc.is_active === 1 ? 'Остановить бота' : 'Запустить бота'}"></div>
-                    <div class="account-item-avatar">${acc.name.charAt(0)}</div>
+                    <div class="account-item-avatar" style="font-size: ${lvlFontSize};">${lvl}<span class="${crownClass}">👑</span></div>
                     <div class="account-item-info">
-                        <h4>${acc.name}</h4>
+                        <h4 style="font-size: ${nameFontSize};">${escapeHtml(nameVal)}</h4>
                         <span>ID: ${acc.vk_id}</span>
                     </div>
                 </div>
                 <div class="account-item-actions">
                     <div class="status-indicator ${statusClass}"></div>
-                    <button class="btn-delete-sidebar" data-vkid="${acc.vk_id}" data-name="${acc.name}" title="Удалить аккаунт">🗑️</button>
+                    <button class="btn-delete-sidebar" data-vkid="${acc.vk_id}" data-name="${escapeHtml(nameVal)}" title="Удалить аккаунт">🗑️</button>
                 </div>
             `;
             
@@ -2978,7 +3000,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 bugs: state.accounts.reduce((sum, a) => sum + (a.bugs || 0), 0),
                 mood: state.accounts.reduce((sum, a) => sum + (a.mood || 0), 0),
                 class_name: "Все классы",
-                class_level: state.accounts.reduce((sum, a) => sum + (a.class_level || 0), 0),
+                class_level: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.level) || a.class_level || 0), 0),
                 chat_id: null,
                 auto_feed: 0,
                 auto_work: 0,
@@ -2991,7 +3013,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 work_info: state.accounts.filter(a => a.status === 'working').length + " на работе",
                 feed_info: state.accounts.filter(a => a.feed_info && (a.feed_info.includes('Покормлена') || a.feed_info === 'well-fed')).length + " покормлено",
                 fattening: state.accounts.filter(a => a.fattening === 'Да').length + " на откорме",
-                positions: "Сводные",
                 partner: state.accounts.filter(a => a.partner && a.partner !== 'Нет').length + " в браке",
                 marriage_days: state.accounts.reduce((sum, a) => sum + (a.marriage_days || 0), 0),
                 froglet: state.accounts.filter(a => a.froglet && a.froglet !== 'Нет').length + " жабят",
@@ -3108,10 +3129,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Откорм</span>
                                                 <span class="stat-value" id="stat-row-fattening">Загрузка...</span>
-                                            </div>
-                                            <div class="stat-row">
-                                                <span class="stat-label">Должности</span>
-                                                <span class="stat-value" id="stat-row-positions">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3891,10 +3908,17 @@ document.addEventListener('DOMContentLoaded', () => {
             let val;
             if (acc.vk_id === 0) {
                 const total = state.accounts.length;
-                const active = state.accounts.filter(a => a.is_active === 1).length;
-                val = total > 0 ? `🔌 Активно: ${active} / ${total}` : 'Нет аккаунтов';
+                const alive = state.accounts.filter(a => a.toad_state && (a.toad_state.state === 'Живая' || a.toad_state.state === 'alive')).length;
+                val = total > 0 ? `💚 Живых: ${alive} / ${total}` : 'Нет аккаунтов';
             } else {
-                val = acc.status === 'working' ? '💼 Работает' : (acc.status === 'offline' ? '🔴 Оффлайн' : '💤 Отдыхает');
+                const toadState = (acc.toad_state && acc.toad_state.state) ? acc.toad_state.state : null;
+                if (toadState === 'Живая' || toadState === 'alive') {
+                    val = '💚 Живая';
+                } else if (toadState === 'Нужна реанимация' || toadState === 'injured') {
+                    val = '💔 Нужна реанимация';
+                } else {
+                    val = '❓ Неизвестно';
+                }
             }
             if (rowStatus.textContent !== val) rowStatus.textContent = val;
         }
@@ -3913,40 +3937,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const rowMood = document.getElementById('stat-row-mood');
         if (rowMood) {
-            let val;
-            if (acc.vk_id === 0) {
-                const maxMood = Math.max(state.accounts.length * 500, 500);
-                val = `👻 ${acc.mood || 0} / ${maxMood}`;
-            } else {
-                val = `👻 ${acc.mood || 0} / 500`;
-            }
+            const val = `👻 ${acc.mood || 0}`;
             if (rowMood.textContent !== val) rowMood.textContent = val;
         }
 
         // Новые характеристики в Жабе:
         const rowWorkInfo = document.getElementById('stat-row-work-info');
         if (rowWorkInfo) {
-            const val = acc.work_info || 'Не на работе';
+            let val;
+            if (acc.vk_id === 0) {
+                const total = state.accounts.length;
+                const working = state.accounts.filter(a => a.toad_state && a.toad_state.work_cooldown > 0).length;
+                val = total > 0 ? `💼 На работе: ${working} / ${total}` : 'Нет аккаунтов';
+            } else {
+                const workCd = (acc.toad_state && acc.toad_state.work_cooldown) ? acc.toad_state.work_cooldown : 0;
+                if (workCd > 0) {
+                    val = `💼 ${formatCooldown(workCd * 60)}`;
+                } else {
+                    val = '💼 Не на работе';
+                }
+            }
             if (rowWorkInfo.textContent !== val) rowWorkInfo.textContent = val;
         }
 
         const rowFeedInfo = document.getElementById('stat-row-feed-info');
         if (rowFeedInfo) {
-            let val = acc.feed_info || 'Не кормлена';
-            if (val === 'well-fed' && acc.next_feed_time) {
-                const nextFeed = new Date(acc.next_feed_time);
-                const now = new Date();
-                const diffMs = nextFeed - now;
-                if (diffMs > 0) {
-                    const diffMins = Math.floor(diffMs / 1000 / 60);
-                    const hours = Math.floor(diffMins / 60);
-                    const mins = diffMins % 60;
-                    val = `well-fed (через ${hours} ч. ${mins} мин.)`;
+            let val;
+            if (acc.vk_id === 0) {
+                const total = state.accounts.length;
+                const fed = state.accounts.filter(a => a.toad_state && a.toad_state.feed_cooldown > 0).length;
+                val = total > 0 ? `🍽️ Кормятся: ${fed} / ${total}` : 'Нет аккаунтов';
+            } else {
+                const feedCd = (acc.toad_state && acc.toad_state.feed_cooldown) ? acc.toad_state.feed_cooldown : 0;
+                if (feedCd > 0) {
+                    val = `🍽️ ${formatCooldown(feedCd * 60)}`;
                 } else {
-                    val = 'hungry (хочет кушать!)';
+                    val = '🍽️ Не кормлена';
                 }
-            } else if (val === 'hungry') {
-                val = 'hungry (хочет кушать!)';
             }
             if (rowFeedInfo.textContent !== val) rowFeedInfo.textContent = val;
         }
@@ -3955,12 +3982,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rowFattening) {
             const val = acc.fattening || 'Нет';
             if (rowFattening.textContent !== val) rowFattening.textContent = val;
-        }
-
-        const rowPositions = document.getElementById('stat-row-positions');
-        if (rowPositions) {
-            const val = acc.positions || 'Рядовой';
-            if (rowPositions.textContent !== val) rowPositions.textContent = val;
         }
 
         const rowWins = document.getElementById('stat-row-wins');

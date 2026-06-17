@@ -1,98 +1,20 @@
 import logging
 import re
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 from vkbottle.user import User, Message
 from vkbottle_types.events import UserEventType
 from vkbottle_types.events.user_events import MessageEdit
 from src.database.db_manager import DBManager
 from src.utils.knowledge_base import KnowledgeBase
-from src.utils.toad_info_parser import parse_toad_info, parse_my_toad, parse_inventory
+from src.utils.toad_info_parser import (
+    parse_toad_info,
+    parse_my_toad,
+    parse_inventory,
+    toad_state_to_account_fields,
+)
 
 logger = logging.getLogger("toadbot.vk.handlers")
-
-def parse_toad_profile(text: str) -> Dict[str, Any]:
-    parsed = {}
-    
-    # Имя (очищаем от "Имя жабы:" или "Имя:")
-    name_match = re.search(r"🐸\s*(?:Имя жабы|Имя)?[:\s]*([^\n\r]+)", text, re.I)
-    if name_match:
-        name_val = name_match.group(1).strip()
-        name_val = re.sub(r"\[id\d+\|([^\]]+)\]", r"\1", name_val)
-        parsed["name"] = name_val
-
-    # Уровень
-    level_match = re.search(r"⭐️\s*(?:Уровень)?[:\s]*(\d+)", text, re.I)
-    if level_match:
-        parsed["class_level"] = int(level_match.group(1))
-
-    # Сытость
-    satiety_match = re.search(r"🍰\s*(?:Сытость)?[:\s]*(\d+/\d+|\d+)", text, re.I)
-    if satiety_match:
-        parsed["satiety"] = satiety_match.group(1)
-
-    # Букашки
-    bugs_match = re.search(r"🐞\s*(?:Букашек|Баланс)?[:\s]*([\d\s\u00A0]+)", text, re.I)
-    if bugs_match:
-        bugs_val = re.sub(r"[\s\u00A0]+", "", bugs_match.group(1))
-        try:
-            parsed["bugs"] = int(bugs_val)
-        except ValueError:
-            pass
-
-    # Настроение
-    mood_match = re.search(r"Настроение:\s*(?:[^\w\s]*\s*)?([а-яА-ЯёЁ\s]+)\s*\((\d+)\)", text, re.I)
-    if mood_match:
-        try:
-            parsed["mood"] = int(mood_match.group(2))
-        except ValueError:
-            pass
-
-    # Класс
-    class_match = re.search(r"(👷|🦹|🧙)\s*([а-яА-ЯёЁ\s]+(?:Ремесленник|Ассасин|Авантюрист)[^\n\r]*)", text, re.I)
-    if class_match:
-        parsed["class_name"] = class_match.group(2).strip()
-    else:
-        for cls in ["Ремесленник", "Ассасин", "Авантюрист"]:
-            if cls in text:
-                parsed["class_name"] = cls
-                break
-
-    # Позиция
-    pos_match = re.search(r"(?:Позиция|Должность)[:\s]*([^\n\r]+)", text, re.I)
-    if pos_match:
-        parsed["positions"] = pos_match.group(1).strip()
-
-    # Статус
-    status_match = re.search(r"Статус жабы:\s*(classic|prime|prime\+|классик|премиум|премиум\+)", text, re.I)
-    if status_match:
-        status_val = status_match.group(1).strip().lower()
-        if status_val in ("prime", "prime+", "премиум", "премиум+"):
-            parsed["is_prime"] = 1
-        else:
-            parsed["is_prime"] = 0
-            
-        if status_val in ("classic", "классик"):
-            parsed["status_text"] = "classic"
-        elif status_val in ("prime", "премиум"):
-            parsed["status_text"] = "prime"
-        elif status_val in ("prime+", "премиум+"):
-            parsed["status_text"] = "prime+"
-        else:
-            parsed["status_text"] = status_val
-
-    # Состояние
-    state_match = re.search(r"Состояние:\s*(?:[^\w\s]*\s*)?(Живая|alive|Нужна реанимация|injured)", text, re.I)
-    if state_match:
-        state_val = state_match.group(1).strip().lower()
-        if state_val in ("alive", "живая"):
-            parsed["state_text"] = "alive"
-        elif "реанимация" in state_val or "injured" in state_val:
-            parsed["state_text"] = "injured"
-        else:
-            parsed["state_text"] = state_val
-
-    return parsed
 
 
 def extract_buttons(message: Any) -> str:
@@ -282,11 +204,13 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                                 }
                                 parsed_fields = {k: v for k, v in parsed_fields.items() if k in allowed_columns}
                         elif action_type == KnowledgeBase.ACTION_STATS:
-                            parsed_fields = parse_toad_profile(text)
-                            # Извлекаем и сохраняем полную анкету в recognition.db.toad_states
+                            # Единый канонический парсер «Моя жаба».
+                            # Полное состояние сохраняем в recognition.db.toad_states,
+                            # а часть полей (имя, уровень, букашки, класс и т.д.) — в accounts (bot.db).
                             parsed_my_toad_data = parse_my_toad(text)
                             if parsed_my_toad_data:
                                 await db.save_toad_state(vk_id, parsed_my_toad_data)
+                                parsed_fields = toad_state_to_account_fields(parsed_my_toad_data)
                         elif action_type == KnowledgeBase.ACTION_INVENTORY:
                             parsed_fields = parse_inventory(text)
                             if parsed_fields:

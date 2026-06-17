@@ -215,6 +215,20 @@ body {
     font-size: 15px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
+    position: relative;
+}
+
+.account-item-avatar .crown {
+    position: absolute;
+    top: -6px;
+    right: -4px;
+    font-size: 12px;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.account-item-avatar .crown.transparent {
+    opacity: 0.25;
 }
 
 .sidebar-account-item.active .account-item-avatar {

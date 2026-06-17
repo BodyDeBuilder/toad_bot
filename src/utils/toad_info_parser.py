@@ -213,104 +213,143 @@ def parse_toad_info(text: str) -> Optional[Dict[str, Any]]:
 
 def parse_my_toad(text: str) -> Optional[Dict[str, Any]]:
     """
-    Parses a 'Моя жаба' profile response block and returns a dictionary of parsed stats.
-    Returns None if any target stat fails to parse or is missing.
+    Разбирает ответ команды «Моя жаба» и возвращает словарь со спарсенными полями.
+
+    Толерантный режим: каждое поле разбирается независимо. Если какое-то поле
+    не сматчилось — оно просто не попадает в результат, остальные сохраняются
+    («что спарсили — то и записали»). Возвращает None только если не удалось
+    распознать ни одного поля.
     """
     text_clean = text.replace("\r", "")
-    
+
     result: Dict[str, Any] = {}
-    
+
     # 1. Name
     name_match = re.search(r'Имя жабы:\s*(.+)', text_clean)
-    if not name_match:
-        return None
-    result['name'] = name_match.group(1).strip()
-    
+    if name_match:
+        result['name'] = name_match.group(1).strip()
+
     # 2. Level
     level_match = re.search(r'Уровень вашей жабы:\s*(\d+)', text_clean)
-    if not level_match:
-        return None
-    result['level'] = int(level_match.group(1))
-    
+    if level_match:
+        result['level'] = int(level_match.group(1))
+
     # 3. Satiety
     satiety_match = re.search(r'Сытость:\s*(\d+)/(\d+)', text_clean)
-    if not satiety_match:
-        return None
-    result['satiety_cur'] = int(satiety_match.group(1))
-    result['satiety_max'] = int(satiety_match.group(2))
-    
+    if satiety_match:
+        result['satiety_cur'] = int(satiety_match.group(1))
+        result['satiety_max'] = int(satiety_match.group(2))
+
     # 4. Status
     status_match = re.search(r'Статус жабы:\s*(classic|prime|prime\+|классик|премиум|премиум\+)', text_clean, re.IGNORECASE)
-    if not status_match:
-        return None
-    status_raw = status_match.group(1).strip().lower()
-    if status_raw in ('classic', 'классик'):
-        result['status'] = 'classic'
-    elif status_raw in ('prime', 'премиум'):
-        result['status'] = 'prime'
-    elif status_raw in ('prime+', 'премиум+'):
-        result['status'] = 'prime+'
-    else:
-        result['status'] = status_raw
-    
+    if status_match:
+        status_raw = status_match.group(1).strip().lower()
+        if status_raw in ('classic', 'классик'):
+            result['status'] = 'classic'
+        elif status_raw in ('prime', 'премиум'):
+            result['status'] = 'prime'
+        elif status_raw in ('prime+', 'премиум+'):
+            result['status'] = 'prime+'
+        else:
+            result['status'] = status_raw
+
     # 5. State
     state_match = re.search(r'Состояние:\s*(?:[^\w\s]*\s*)?(Живая|alive|Нужна реанимация|injured)', text_clean, re.IGNORECASE)
-    if not state_match:
-        return None
-    state_raw = state_match.group(1).strip().lower()
-    if state_raw in ('alive', 'живая'):
-        result['state'] = 'alive'
-    elif 'реанимация' in state_raw or 'injured' in state_raw:
-        result['state'] = 'injured'
-    else:
-        result['state'] = state_raw
-    
+    if state_match:
+        state_raw = state_match.group(1).strip().lower()
+        if state_raw in ('alive', 'живая'):
+            result['state'] = 'alive'
+        elif 'реанимация' in state_raw or 'injured' in state_raw:
+            result['state'] = 'injured'
+        else:
+            result['state'] = state_raw
+
     # 6. Bugs
-    bugs_match = re.search(r'Букашки:\s*(\d+)', text_clean)
-    if not bugs_match:
-        return None
-    result['bugs'] = int(bugs_match.group(1))
-    
-    # 7. Class
-    class_match = re.search(r'Класс:\s*(Авантюрист|adventurer|Ремесленник|worker|Ассасин|assassin)\s+([IVXLCDM]+)', text_clean, re.IGNORECASE)
-    if not class_match:
-        return None
-    class_name = class_match.group(1).strip().lower()
-    class_lvl = class_match.group(2).strip()
-    if class_name in ('авантюрист', 'adventurer'):
-        result['class'] = f'Авантюрист {class_lvl}'
-    elif class_name in ('ремесленник', 'worker'):
-        result['class'] = f'Ремесленник {class_lvl}'
-    elif class_name in ('ассасин', 'assassin'):
-        result['class'] = f'Ассасин {class_lvl}'
-    else:
-        result['class'] = f'{class_match.group(1).strip()} {class_lvl}'
-    
-    # 8. Mood
+    bugs_match = re.search(r'Букашки:\s*([\d\s\u00A0]+)', text_clean)
+    if bugs_match:
+        try:
+            result['bugs'] = int(re.sub(r'[\s\u00A0]+', '', bugs_match.group(1)))
+        except ValueError:
+            pass
+
+    # 7. Class — римская цифра ОПЦИОНАЛЬНА (не во всех ответах жабабота она есть)
+    class_match = re.search(r'Класс:\s*(Авантюрист|adventurer|Ремесленник|worker|Ассасин|assassin)(?:\s+([IVXLCDM]+))?', text_clean, re.IGNORECASE)
+    if class_match:
+        class_name = class_match.group(1).strip().lower()
+        class_lvl = class_match.group(2)  # может быть None
+        # Нормализуем имя класса на русский
+        if class_name in ('авантюрист', 'adventurer'):
+            class_ru = 'Авантюрист'
+        elif class_name in ('ремесленник', 'worker'):
+            class_ru = 'Ремесленник'
+        elif class_name in ('ассасин', 'assassin'):
+            class_ru = 'Ассасин'
+        else:
+            class_ru = class_match.group(1).strip()
+        result['class'] = f'{class_ru} {class_lvl}'.strip() if class_lvl else class_ru
+
+    # 8. Mood — сохраняем только число из скобок
     mood_match = re.search(r'Настроение:\s*(?:[^\w\s]*\s*)?([а-яА-ЯёЁ\s]+)\s*\((\d+)\)', text_clean, re.IGNORECASE)
-    if not mood_match:
-        return None
-    result['mood'] = int(mood_match.group(2))
-    
+    if mood_match:
+        result['mood'] = int(mood_match.group(2))
+
     # 9. Wins
     wins_match = re.search(r'Количество побед:\s*(\d+)', text_clean)
-    if not wins_match:
-        return None
-    result['wins'] = int(wins_match.group(1))
-    
+    if wins_match:
+        result['wins'] = int(wins_match.group(1))
+
     # 10. Losses
     losses_match = re.search(r'Количество поражений:\s*(\d+)', text_clean)
-    if not losses_match:
-        return None
-    result['losses'] = int(losses_match.group(1))
-    
+    if losses_match:
+        result['losses'] = int(losses_match.group(1))
+
     # 11. Arenas
     arenas_match = re.search(r'Арен за сезон:\s*(\d+)', text_clean)
-    if not arenas_match:
-        return None
-    result['arenas'] = int(arenas_match.group(1))
-    
-    return result
+    if arenas_match:
+        result['arenas'] = int(arenas_match.group(1))
+
+    return result if result else None
+
+
+def toad_state_to_account_fields(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Преобразует канонические поля parse_my_toad (для toad_states в recognition.db)
+    в ключи колонок таблицы accounts (bot.db).
+
+    Включаются только поля, реально присутствующие в parsed.
+    Маппинг (см. parameter_mappings.txt:30-39):
+      name        -> name
+      level       -> class_level
+      satiety_*   -> satiety ("cur/max")
+      status      -> is_prime (classic=0, prime/prime+=1)
+      bugs        -> bugs
+      class       -> class_name
+      mood        -> mood
+      wins        -> wins
+      losses      -> losses
+    """
+    fields: Dict[str, Any] = {}
+
+    if 'name' in parsed:
+        fields['name'] = parsed['name']
+    if 'level' in parsed:
+        fields['class_level'] = parsed['level']
+    if 'satiety_cur' in parsed and 'satiety_max' in parsed:
+        fields['satiety'] = f"{parsed['satiety_cur']}/{parsed['satiety_max']}"
+    if 'status' in parsed:
+        fields['is_prime'] = 1 if parsed['status'] in ('prime', 'prime+') else 0
+    if 'bugs' in parsed:
+        fields['bugs'] = parsed['bugs']
+    if 'class' in parsed:
+        fields['class_name'] = parsed['class']
+    if 'mood' in parsed:
+        fields['mood'] = parsed['mood']
+    if 'wins' in parsed:
+        fields['wins'] = parsed['wins']
+    if 'losses' in parsed:
+        fields['losses'] = parsed['losses']
+
+    return fields
 
 
 def parse_inventory(text: str) -> Optional[Dict[str, Any]]:
