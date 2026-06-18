@@ -465,5 +465,314 @@ def parse_inventory(text: str) -> Optional[Dict[str, Any]]:
         result["cr_mask"] = "-"
         result["cr_paper"] = "-"
         result["cr_lightning"] = "-"
-        
+
     return result
+
+
+# ---------------------------------------------------------------------------
+# Модификаторы снаряжения
+# ---------------------------------------------------------------------------
+# Модификатор крепится к слоту брони (наголовник/нагрудник/налапники) как эмодзи в
+# скобках правее предмета, например: «Добрых дел [31/40] [🌵]».
+#   • [NN/NN] — прочность (содержит цифры);
+#   • [эмодзи] — модификатор (без цифр).
+# На один слот — максимум 1 модификатор (по данным жабабота).
+#
+# «tiers» — бонус комбинации в зависимости от количества предметов с этим модификатором
+# (1 / 2 / 3 предмета). Сохраняем чётко, как в описании игры. В визуал не выводится —
+# используется для будущих операций (расчёт, рекомендации).
+EQUIPMENT_MODIFIERS: Dict[str, Dict[str, Any]] = {
+    "👊": {"name": "Увеличенный урон",  "var_name": "mod_damage",      "tiers": ("+5",  "+8",  "+10")},
+    "🛡️": {"name": "Увеличенная броня", "var_name": "mod_armor",       "tiers": ("+5",  "+8",  "+10")},
+    "❤️": {"name": "Увеличенное здоровье", "var_name": "mod_health",   "tiers": ("+7",  "+10", "+15")},
+    "🌵": {"name": "Шипы",             "var_name": "mod_thorns",      "tiers": ("3%",  "4%",  "5%")},
+    "🧛": {"name": "Вампиризм",         "var_name": "mod_vampirism",   "tiers": ("25%", "35%", "50%")},
+    "🦔": {"name": "Анти-Шип",          "var_name": "mod_antithorns",  "tiers": ("30%", "100%", "100%")},
+    "☀️": {"name": "Анти-Вампир",       "var_name": "mod_antivamp",    "tiers": ("30%", "100%", "100%")},
+}
+
+
+def compute_modifier_bonus(emoji: str, count: int) -> Optional[str]:
+    """
+    Возвращает бонус комбинации для заданного модификатора в зависимости от того,
+    на скольких предметах он нанесён (count ∈ {1,2,3}). Возвращает None, если
+    модификатор неизвестен или count вне диапазона.
+
+    Пример: compute_modifier_bonus("👊", 2) -> "+8"
+            compute_modifier_bonus("🧛", 3) -> "50%"
+    """
+    info = EQUIPMENT_MODIFIERS.get(emoji)
+    if info is None or count < 1 or count > 3:
+        return None
+    return info["tiers"][count - 1]
+
+
+def _extract_modifier(slot_line: str) -> Optional[str]:
+    """
+    Из строки слота брони извлекает эмодзи-модификатор из квадратных скобок.
+    Модификатор — это скобка, содержимое которой НЕ является прочностью (не содержит цифр).
+    Возвращает эмодзи (как есть) или None.
+    Пример: «Добрых дел [31/40] [🌵]» -> «🌵»
+    """
+    for m in re.finditer(r'\[([^\]]+)\]', slot_line):
+        inner = m.group(1).strip()
+        # Прочность всегда содержит цифры — пропускаем её
+        if re.search(r'\d', inner):
+            continue
+        return inner
+    return None
+
+
+def _strip_modifier(slot_value: str) -> str:
+    """
+    Убирает из значения слота скобку с эмодзи-модификатором (прочность [NN/NN] оставляет).
+    Пример: «Добрых дел [31/40] [🌵]» -> «Добрых дел [31/40]»
+    """
+    def _drop(m: re.Match) -> str:
+        return "" if not re.search(r'\d', m.group(1)) else m.group(0)
+
+    cleaned = re.sub(r'\s*\[([^\]]+)\]', lambda m: _drop(m), slot_value)
+    return cleaned.rstrip()
+
+
+def parse_equipment(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Разбирает ответ команды «Мое снаряжение» и возвращает словарь со всеми полями.
+    Все строки 1 в 1 как в ответе жабабота. Модификаторы сохраняются для наголовника,
+    нагрудника и налапников. «Пусто❌» заменяется на прочерк. Баффы — опционально.
+    """
+    text_clean = text.replace("\r", "")
+
+    # Проверяем, что это действительно ответ команды «Мое снаряжение»
+    if not re.search(r'Ближний бой:', text_clean):
+        return None
+
+    result: Dict[str, Any] = {}
+
+    # Вспомогательная функция: парсит строку снаряжения с учётом модификаторов и «Пусто❌»
+    def _parse_slot(pattern: str, text: str) -> str:
+        m = re.search(pattern, text)
+        if not m:
+            return "-"
+        raw = m.group(1).strip()
+        if "Пусто" in raw or "❌" in raw:
+            return "-"
+        return raw
+
+    # --- Снаряжение ---
+    result["eq_melee"] = _parse_slot(r'🗡️\s*Ближний бой:\s*(.+)', text_clean)
+    result["eq_ranged"] = _parse_slot(r'🏹\s*Дальний бой:\s*(.+)', text_clean)
+    eq_helmet_raw = _parse_slot(r'🐸\s*Наголовник:\s*(.+)', text_clean)
+    eq_chest_raw = _parse_slot(r'🥼\s*Нагрудник:\s*(.+)', text_clean)
+    eq_paws_raw = _parse_slot(r'🧤\s*Налапники:\s*(.+)', text_clean)
+
+    # Модификаторы на 3 слотах брони: эмодзи в скобках (правее предмета). «-», если нет.
+    result["eq_helmet_mod"] = _extract_modifier(eq_helmet_raw) or "-" if eq_helmet_raw != "-" else "-"
+    result["eq_chest_mod"] = _extract_modifier(eq_chest_raw) or "-" if eq_chest_raw != "-" else "-"
+    result["eq_paws_mod"] = _extract_modifier(eq_paws_raw) or "-" if eq_paws_raw != "-" else "-"
+
+    # Само значение слота — без скобки модификатора (прочность [NN/NN] остаётся)
+    result["eq_helmet"] = _strip_modifier(eq_helmet_raw) if eq_helmet_raw != "-" else "-"
+    result["eq_chest"] = _strip_modifier(eq_chest_raw) if eq_chest_raw != "-" else "-"
+    result["eq_paws"] = _strip_modifier(eq_paws_raw) if eq_paws_raw != "-" else "-"
+
+    # --- Баффы от снаряжения (опциональная секция) ---
+    buff_match = re.search(
+        r'Баффы от снаряжения:\s*\n([\s\S]*?)(?=\n\n|\n\S)',
+        text_clean
+    )
+    if buff_match:
+        buff_text = buff_match.group(1).strip()
+        result["eq_buffs"] = buff_text if (buff_text and "Пусто" not in buff_text) else "-"
+    else:
+        result["eq_buffs"] = "-"
+
+    # --- Банда и усилитель ---
+    result["eq_gang"] = _parse_slot(r'🏋️\s*Банда:\s*(.+)', text_clean)
+    result["eq_booster"] = _parse_slot(r'🚀\s*Усилитель:\s*(.+)', text_clean)
+
+    # --- Кусочки для крафта ---
+    result["eq_parts_weapon"] = _parse_slot(r'⚙️\s*Оружейных кусочков:\s*(.+)', text_clean)
+    result["eq_parts_algae"] = _parse_slot(r'🌿\s*Кусочков водорослей:\s*(.+)', text_clean)
+    result["eq_parts_lily"] = _parse_slot(r'🥬\s*Кусочков кувшинки:\s*(.+)', text_clean)
+    result["eq_parts_beak"] = _parse_slot(r'🦴\s*Кусочков клюва цапли:\s*(.+)', text_clean)
+
+    # --- ЖабоГемы (сохраняем дробь N/N) ---
+    gems_match = re.search(r'💠\s*ЖабоГемы:\s*(\d+/\d+)', text_clean)
+    result["eq_gems"] = gems_match.group(1).strip() if gems_match else "-"
+
+    # --- Характеристики ---
+    health_match = re.search(r'❤️\s*Здоровье:\s*(\d+)', text_clean)
+    result["eq_health"] = health_match.group(1).strip() if health_match else "-"
+
+    attack_match = re.search(r'⚔️\s*Атака:\s*(\d+)', text_clean)
+    result["eq_attack"] = attack_match.group(1).strip() if attack_match else "-"
+
+    defense_match = re.search(r'🛡️\s*Защита:\s*(\d+)', text_clean)
+    result["eq_defense"] = defense_match.group(1).strip() if defense_match else "-"
+
+    return result
+
+
+# ============================================================================
+# Парсер команды «Покормить жабу»
+# ============================================================================
+
+def parse_feed(text: str) -> dict | None:
+    """Парсит ответ Жабабота на команду «Покормить жабу».
+
+    Возвращает dict с распознанными полями или None, если текст не относится
+    к команде кормления.
+
+    Два основных сценария:
+      1. Кулдаун — «Покормить жабулю через N ч:M мин.»
+      2. Успех — текст содержит «ты получил» + статичные эффекты + опциональный лут
+
+    Толерантный режим: парсим что можем, неизвестные строки пропускаем.
+    Ключи результата совместимы с колонками toad_states (feed_info, feed_cooldown,
+    satiety_cur, satiety_max, mood, bugs, feed_loot).
+    """
+    result: dict = {}
+    text_clean = text.replace('\r', '').strip()
+
+    # --- Определяем сценарий: кулдаун или успех ---
+    cooldown_match = re.search(
+        r'покормить\s+жабулю\s+через\s+(?:(?P<hours>\d+)\s*ч[.:]?)?\s*(?P<minutes>\d+)\s*мин',
+        text_clean,
+        re.IGNORECASE
+    )
+    if cooldown_match:
+        hours = int(cooldown_match.group("hours") or 0)
+        minutes = int(cooldown_match.group("minutes"))
+        total_seconds = hours * 3600 + minutes * 60 + 59  # +59 буфер
+        result["feed_info"] = "cooldown"
+        result["feed_cooldown"] = total_seconds
+        return result
+
+    # --- Успешное кормление: ищем «ты получил» ---
+    if "ты получил" not in text_clean.lower():
+        return None
+
+    result["feed_info"] = "fed"
+
+    # Статичные эффекты при кормлении (всегда присутствуют при успехе):
+    # +1 сытость, +15 настроение, +N букашек.
+    # Ключи — как в toad_states: satiety_cur, satiety_max, mood, bugs.
+
+    # Сытость
+    satiety_match = re.search(r'Сытость[:\s]*(\d+)/(\d+)', text_clean)
+    if satiety_match:
+        result["satiety_cur"] = int(satiety_match.group(1))
+        result["satiety_max"] = int(satiety_match.group(2))
+
+    # Настроение
+    mood_match = re.search(r'Настроение[:\s]*([^\n\r]+?)(?:\s*\(|$)', text_clean)
+    if mood_match:
+        result["mood"] = mood_match.group(1).strip()
+
+    # Букашки (количество полученных или текущий баланс)
+    bugs_match = re.search(r'([+-]?\d+)\s*ба?на?шек?', text_clean, re.IGNORECASE)
+    if bugs_match:
+        result["bugs"] = int(bugs_match.group(1))
+
+    # --- Динамический лут ---
+    # Ищем весь текст после «ты получил» и собираем строки с эмодзи
+    loot_items = []
+    loot_section = re.search(r'ты\s+получил[:\s]*\n([\s\S]+?)(?:\n{2,}|\Z)', text_clean, re.IGNORECASE)
+    if loot_section:
+        for line in loot_section.group(1).split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            # Строка с эмодзи — считаем предметом лута
+            if any(ord(c) > 0x2600 for c in line):
+                loot_items.append(line)
+
+    if loot_items:
+        result["feed_loot"] = " | ".join(loot_items)
+
+    return result if result else None
+
+
+def parse_dailies(text: str) -> dict | None:
+    """Парсит ответ Жабабота на команду «Дейлики» или «Ежедневные задания».
+
+    Возвращает dict с распознанными полями или None, если текст не относится
+    к команде дейликов.
+    """
+    text_clean = text.replace('\r', '').strip()
+
+    # Проверяем, относится ли текст к дейликам
+    if "ежедневные задания:" not in text_clean.lower():
+        return None
+
+    result: dict = {}
+
+    # 1. Твой статус: например, "Твой статус: Золотой [46/∞]"
+    status_match = re.search(r'Твой статус:\s*([^\n\r]+)', text_clean, re.IGNORECASE)
+    if status_match:
+        result["daily_status"] = status_match.group(1).strip()
+    else:
+        result["daily_status"] = "Не активен"
+
+    # 2. Можно пропустить дней: например, "Можно пропустить дней: 5"
+    skip_match = re.search(r'Можно пропустить дней:\s*([^\n\r]+)', text_clean, re.IGNORECASE)
+    if skip_match:
+        days_str = skip_match.group(1).strip()
+        days_num_match = re.search(r'\d+', days_str)
+        result["reserve_days"] = int(days_num_match.group(0)) if days_num_match else 0
+    else:
+        result["reserve_days"] = 0
+
+    # 3. Разбор по строкам для задач и наград
+    lines = [line.strip() for line in text_clean.split('\n') if line.strip()]
+
+    current_section = None
+    main_tasks = []
+    bonus_tasks = []
+    main_rewards = []
+    bonus_rewards = []
+
+    for line in lines:
+        if "Ежедневные задания:" in line:
+            current_section = "main_tasks"
+            continue
+        elif "Награда:" in line:
+            current_section = "main_rewards"
+            continue
+        elif "Дополнительные задания:" in line:
+            current_section = "bonus_tasks"
+            continue
+        elif "Дополнительная награда:" in line:
+            current_section = "bonus_rewards"
+            continue
+        elif "Твой статус:" in line or "Можно пропустить дней:" in line or "Все задания на сегодня выполнены" in line:
+            current_section = None
+            continue
+
+        if current_section == "main_tasks":
+            if line.startswith("✅") or line.startswith("❌") or line.startswith("🔴"):
+                main_tasks.append(line)
+        elif current_section == "bonus_tasks":
+            if line.startswith("✅") or line.startswith("❌") or line.startswith("🔴"):
+                bonus_tasks.append(line)
+        elif current_section == "main_rewards":
+            main_rewards.append(line)
+        elif current_section == "bonus_rewards":
+            bonus_rewards.append(line)
+
+    result["daily_tasks"] = " | ".join(main_tasks) if main_tasks else ""
+    result["daily_reward"] = " | ".join(main_rewards) if main_rewards else ""
+    result["daily_bonus_tasks"] = " | ".join(bonus_tasks) if bonus_tasks else ""
+    result["daily_bonus_reward"] = " | ".join(bonus_rewards) if bonus_rewards else ""
+
+    # 4. Проверка завершенности дейлика
+    if "Все задания на сегодня выполнены" in text_clean:
+        result["daily_completed"] = 1
+    elif main_tasks and all(t.startswith("✅") for t in main_tasks):
+        result["daily_completed"] = 1
+    else:
+        result["daily_completed"] = 0
+
+    return result
+

@@ -54,6 +54,7 @@
 | **«Мой инвентарь»** (предметы) | `inv_lollipop`, `inv_bandages`, `inv_beer`, `inv_dragonfly`, `inv_map`, `inv_tape`, `inv_gang_frogs`, `inv_exp_capsule` | `parse_inventory` |
 | **Инвентарь: снаряжение** | `eq_pass`, `eq_lockpick`, `eq_battery` | `parse_inventory` |
 | **Инвентарь: крафт** | `cr_puzzle`, `cr_link`, `cr_stone`, `cr_mask`, `cr_paper`, `cr_lightning` | `parse_inventory` |
+| **«Покормить жабу»** | `feed_info` (`"fed"`/`"cooldown"`), `feed_cooldown`, + переиспользует `satiety_cur`, `satiety_max`, `mood`, `bugs`. Сырой лут → `feed_loot` (опц., колонка добавляется при необходимости) | `parse_feed` |
 | **Метаданные** | `vk_id` (PK), `last_updated` | Автоматически |
 
 > **Единицы кулдаунов:** все `*_cooldown` колонки (`work_cooldown`, `feed_cooldown`, `fattening_cooldown`, `dungeon_cooldown`, `arena_cooldown`) хранятся в **СЕКУНДАХ** (INTEGER). `last_updated` — время парса в формате `DD.MM.YYYY HH:MM:SS` (MSK). Вместе они позволяют считать остаток кулдауна в реальном времени (см. §6.1).
@@ -82,6 +83,10 @@ handlers.py → определение action_type через KnowledgeBase
      │
      ├── ACTION_INVENTORY ("Мой инвентарь")
      │     parse_inventory(text) → dict
+     │     └── save_toad_state(vk_id, dict) → recognition.db  (в bot.db ничего)
+     │
+     ├── ACTION_FEED ("Покормить жабу")
+     │     parse_feed(text) → dict
      │     └── save_toad_state(vk_id, dict) → recognition.db  (в bot.db ничего)
      │
      └── Regex-команды
@@ -189,6 +194,8 @@ async def save_toad_state(self, vk_id: int, data: dict) -> None:
 
 ## 7. Как добавить новую команду с Python-парсером
 
+> Эталонный пример реализации — команда **«Покормить жабу»** (см. `RECOGNITION_GUIDE.md` § 3.6).
+
 ### 7.1. Написать парсер
 
 В `src/utils/toad_info_parser.py`:
@@ -202,9 +209,17 @@ def parse_new_command(text: str) -> Optional[Dict[str, Any]]:
 
 Ключи результата парсера должны совпадать с колонками `toad_states` (или добавьте новые колонки в схему).
 
-### 7.2. Зарегистрировать в системе статусов
+### 7.2. Зарегистрировать триггер в KnowledgeBase
 
-В `_evaluate_recognition_status` (`db_manager.py:1717`):
+В `src/utils/knowledge_base.py`:
+- Добавить константу `ACTION_NEW = "new"`.
+- Добавить триггер в `COMMAND_TRIGGERS`: `re.compile(r"^новая команда$", re.IGNORECASE)`.
+- Добавить `ACTION_NEW: False` в `CRITICAL_ACTIONS`.
+- (При необходимости) добавить записи в `RESPONSE_PATTERNS` для распознавания ответа Жабабота.
+
+### 7.3. Зарегистрировать в системе статусов
+
+В `_evaluate_recognition_status` (`db_manager.py`):
 
 ```python
 elif command_name == "Новая команда":
@@ -217,9 +232,9 @@ elif command_name == "Новая команда":
     return "Нет"
 ```
 
-### 7.3. Зарегистрировать в test-parse
+### 7.4. Зарегистрировать в test-parse
 
-В `server.py` (блок `elif cmd_real_name == ...` около строки 958):
+В `server.py` (блок `elif cmd_real_name == ...`):
 
 ```python
 elif cmd_real_name == "Новая команда":
@@ -228,15 +243,19 @@ elif cmd_real_name == "Новая команда":
     recognized = parsed_data is not None
 ```
 
-### 7.4. (Опционально) Маппинг в accounts
+### 7.5. (Опционально) Маппинг в accounts
 
 Если часть полей нужно дублировать в `bot.db.accounts`:
 - Добавить mapper-функцию в `toad_info_parser.py` (по аналогии с `toad_state_to_account_fields`)
 - Вызвать её в `handlers.py` и передать результат в `update_account_fields`
 
-### 7.5. Посеять правила в БД
+### 7.6. Посеять команду и правила в БД
 
-В блоке посева `db_manager.py` (около строки 338) — документирующие regex-правила для вкладки «Распознавание». См. `RECOGNITION_GUIDE.md` § 9.
+В блоке посева `db_manager.py`:
+1. Добавить имя команды в список посева `monitored_commands` (с `in_recognition = 1`).
+2. Добавить блок `if "<Команда>" in cmd_ids:` с подразделами и regex-правилами (guard на отсутствие подразделов).
+3. Добавить записи в `SECTION_KEYS` (`app.js`).
+4. Для лут-команд — сначала скелет (success/cooldown), затем подразделы предметов после сбора примеров (см. `RECOGNITION_GUIDE.md` § 5.5).
 
 ---
 
@@ -244,9 +263,10 @@ elif cmd_real_name == "Новая команда":
 
 | Файл | Что содержит |
 |---|---|
-| `src/utils/toad_info_parser.py` | Все Python-парсеры (`parse_toad_info`, `parse_my_toad`, `parse_inventory`) |
+| `src/utils/toad_info_parser.py` | Все Python-парсеры (`parse_toad_info`, `parse_my_toad`, `parse_inventory`, `parse_equipment`, `parse_feed`) |
 | `src/database/db_manager.py` | Схемы БД, `save_toad_state`, `get_all_accounts`, `_evaluate_recognition_status`, посев правил |
-| `src/vk/handlers.py` | Триггеры парсеров (ACTION_INFO/STATS/INVENTORY), вызовы save/update |
+| `src/utils/knowledge_base.py` | `ACTION_*`, `COMMAND_TRIGGERS`, `RESPONSE_PATTERNS`, `match_bot_response` |
+| `src/vk/handlers.py` | Триггеры парсеров (ACTION_INFO/STATS/INVENTORY/EQUIPMENT), вызовы save/update |
 | `src/web/server.py` | Эндпоинт `test-parse` со спецеветками для парсеров |
 | `src/web/static/app.js` | `SECTION_KEYS`, рендер UI из `acc.toad_state.*` и `acc.*` |
 | `RECOGNITION_GUIDE.md` | Правила оформления regex-правил и подразделов распознавания |

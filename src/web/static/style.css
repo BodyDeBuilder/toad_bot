@@ -1544,6 +1544,7 @@ select:-webkit-autofill {
 }
 
 .column-timer {
+    display: none !important;
     font-size: 10.5px;
     color: var(--color-text-muted);
     font-weight: 600;

@@ -2447,15 +2447,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-value" id="stat-row-arena">Загрузка...</span>
                                             </div>
                                         </div>
-                                    </div>
-
-                                    <!-- Столбец 2: Боевая статистика -->
-                                    <div class="stats-column-wrapper">
-                                        <div class="column-timer" id="timer-column-battles">
-                                            <span class="dot"></span>
-                                            <span>Проверено: загрузка...</span>
-                                        </div>
-                                        <div class="stats-column">
+                                        <div class="stats-column" style="margin-top: 8px;">
                                             <div class="stats-column-title">⚔️ Сражения</div>
                                             <div class="stat-row">
                                                 <span class="stat-label">Победы</span>
@@ -2464,6 +2456,87 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Поражения</span>
                                                 <span class="stat-value" id="stat-row-losses">Загрузка...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Столбец 2: Боевая статистика -->
+                                    <div class="stats-column-wrapper">
+                                        <div class="column-timer" id="timer-column-battles">
+                                            <span class="dot"></span>
+                                            <span>Проверено: загрузка...</span>
+                                        </div>
+                                        <div class="stats-column" id="stats-column-equipment-wrapper">
+                                            <div class="stats-column-title">🛡️ Снаряжение</div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🗡️ Ближний бой</span>
+                                                <span class="stat-value" id="stat-row-eq-melee">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🏹 Дальний бой</span>
+                                                <span class="stat-value" id="stat-row-eq-ranged">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🐸 Наголовник</span>
+                                                <span class="stat-value" id="stat-row-eq-helmet">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🥼 Нагрудник</span>
+                                                <span class="stat-value" id="stat-row-eq-chest">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🧤 Налапники</span>
+                                                <span class="stat-value" id="stat-row-eq-paws">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🏋️ Банда</span>
+                                                <span class="stat-value" id="stat-row-eq-gang">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🚀 Усилитель</span>
+                                                <span class="stat-value" id="stat-row-eq-booster">-</span>
+                                            </div>
+                                            <div class="stat-row" style="align-items: flex-start; margin-bottom: 6px;">
+                                                <span class="stat-label">✨ Эффекты</span>
+                                                <span class="stat-value" id="stat-row-eq-buffs" style="text-align: right; white-space: pre-line;">-</span>
+                                            </div>
+                                            
+                                            <!-- Разделитель: Компоненты -->
+                                            <div style="margin-top: 6px; margin-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.08);"></div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">⚙️ Оружейные кусочки</span>
+                                                <span class="stat-value" id="stat-row-eq-parts-weapon">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🌿 Кусочки водорослей</span>
+                                                <span class="stat-value" id="stat-row-eq-parts-algae">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🥬 Кусочки кувшинки</span>
+                                                <span class="stat-value" id="stat-row-eq-parts-lily">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🦴 Кусочки клюва</span>
+                                                <span class="stat-value" id="stat-row-eq-parts-beak">-</span>
+                                            </div>
+                                            <div class="stat-row" style="margin-bottom: 6px;">
+                                                <span class="stat-label">💎 ЖабоГемы</span>
+                                                <span class="stat-value" id="stat-row-eq-gems">-</span>
+                                            </div>
+                                            
+                                            <!-- Разделитель: Характеристики боя -->
+                                            <div style="margin-top: 6px; margin-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.08);"></div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">❤️ Здоровье</span>
+                                                <span class="stat-value" id="stat-row-eq-health">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">⚔️ Атака</span>
+                                                <span class="stat-value" id="stat-row-eq-attack">-</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">🛡️ Защита</span>
+                                                <span class="stat-value" id="stat-row-eq-defense">-</span>
                                             </div>
                                         </div>
                                     </div>
@@ -2487,6 +2560,22 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Выполнен сегодня?</span>
                                                 <span class="stat-value" id="stat-row-daily-completed">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row-vertical" id="stat-row-daily-tasks-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
+                                                <span class="stat-label" style="margin-bottom: 4px;">Задания</span>
+                                                <span class="stat-value" id="stat-row-daily-tasks" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            </div>
+                                            <div class="stat-row-vertical" id="stat-row-daily-reward-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
+                                                <span class="stat-label" style="margin-bottom: 4px;">Награда</span>
+                                                <span class="stat-value" id="stat-row-daily-reward" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            </div>
+                                            <div class="stat-row-vertical" id="stat-row-daily-bonus-tasks-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
+                                                <span class="stat-label" style="margin-bottom: 4px;">Доп. задания</span>
+                                                <span class="stat-value" id="stat-row-daily-bonus-tasks" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            </div>
+                                            <div class="stat-row-vertical" id="stat-row-daily-bonus-reward-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
+                                                <span class="stat-label" style="margin-bottom: 4px;">Доп. награда</span>
+                                                <span class="stat-value" id="stat-row-daily-bonus-reward" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3271,6 +3360,58 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowLosses.textContent !== val) rowLosses.textContent = val;
         }
 
+        const wrapperEquipment = document.getElementById('stats-column-equipment-wrapper');
+        const timerBattlesWrapper = document.getElementById('timer-column-battles');
+        
+        if (wrapperEquipment) {
+            if (acc.vk_id === 0) {
+                wrapperEquipment.classList.add('hidden');
+                if (timerBattlesWrapper) timerBattlesWrapper.classList.add('hidden');
+            } else {
+                wrapperEquipment.classList.remove('hidden');
+                if (timerBattlesWrapper) timerBattlesWrapper.classList.remove('hidden');
+                
+                const ts = acc.toad_state || {};
+                
+                const setEqVal = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el && el.textContent !== val) el.textContent = val;
+                };
+                
+                // Get modifiers if present
+                const helmetMod = ts.eq_helmet_mod && ts.eq_helmet_mod !== '-' ? ` (${ts.eq_helmet_mod})` : '';
+                const chestMod = ts.eq_chest_mod && ts.eq_chest_mod !== '-' ? ` (${ts.eq_chest_mod})` : '';
+                const pawsMod = ts.eq_paws_mod && ts.eq_paws_mod !== '-' ? ` (${ts.eq_paws_mod})` : '';
+                
+                setEqVal('stat-row-eq-melee', ts.eq_melee || '-');
+                setEqVal('stat-row-eq-ranged', ts.eq_ranged || '-');
+                setEqVal('stat-row-eq-helmet', ts.eq_helmet ? `${ts.eq_helmet}${helmetMod}` : '-');
+                setEqVal('stat-row-eq-chest', ts.eq_chest ? `${ts.eq_chest}${chestMod}` : '-');
+                setEqVal('stat-row-eq-paws', ts.eq_paws ? `${ts.eq_paws}${pawsMod}` : '-');
+                setEqVal('stat-row-eq-gang', ts.eq_gang || '-');
+                setEqVal('stat-row-eq-booster', ts.eq_booster || '-');
+                setEqVal('stat-row-eq-buffs', ts.eq_buffs || '-');
+                
+                // Components
+                setEqVal('stat-row-eq-parts-weapon', ts.eq_parts_weapon || '-');
+                setEqVal('stat-row-eq-parts-algae', ts.eq_parts_algae || '-');
+                setEqVal('stat-row-eq-parts-lily', ts.eq_parts_lily || '-');
+                setEqVal('stat-row-eq-parts-beak', ts.eq_parts_beak || '-');
+                
+                // Extract only current gems count (e.g. "39" instead of "39/100")
+                let gemsVal = ts.eq_gems || '-';
+                if (gemsVal && gemsVal !== '-' && gemsVal.includes('/')) {
+                    gemsVal = gemsVal.split('/')[0].trim();
+                }
+                setEqVal('stat-row-eq-gems', gemsVal);
+                
+                // Combat stats
+                setEqVal('stat-row-eq-health', ts.eq_health || '-');
+                setEqVal('stat-row-eq-attack', ts.eq_attack || '-');
+                setEqVal('stat-row-eq-defense', ts.eq_defense || '-');
+            }
+        }
+
         const rowDailyStatus = document.getElementById('stat-row-daily-status');
         if (rowDailyStatus) {
             let val;
@@ -3306,6 +3447,69 @@ document.addEventListener('DOMContentLoaded', () => {
                 val = (acc.daily_completed === 1 || acc.daily_completed === 'Да' || acc.daily_completed === '🟢 Да') ? '🟢 Да' : '🔴 Нет';
             }
             if (rowDailyCompleted.textContent !== val) rowDailyCompleted.textContent = val;
+        }
+
+        // Подробная информация о дейликах для одного аккаунта
+        const wrapperTasks = document.getElementById('stat-row-daily-tasks-wrapper');
+        const wrapperReward = document.getElementById('stat-row-daily-reward-wrapper');
+        const wrapperBonusTasks = document.getElementById('stat-row-daily-bonus-tasks-wrapper');
+        const wrapperBonusReward = document.getElementById('stat-row-daily-bonus-reward-wrapper');
+        const elTasks = document.getElementById('stat-row-daily-tasks');
+        const elReward = document.getElementById('stat-row-daily-reward');
+        const elBonusTasks = document.getElementById('stat-row-daily-bonus-tasks');
+        const elBonusReward = document.getElementById('stat-row-daily-bonus-reward');
+
+        if (acc.vk_id === 0) {
+            if (wrapperTasks) wrapperTasks.classList.add('hidden');
+            if (wrapperReward) wrapperReward.classList.add('hidden');
+            if (wrapperBonusTasks) wrapperBonusTasks.classList.add('hidden');
+            if (wrapperBonusReward) wrapperBonusReward.classList.add('hidden');
+        } else {
+            const ts = acc.toad_state || {};
+            const tasksVal = acc.daily_tasks || ts.daily_tasks || '';
+            const rewardVal = acc.daily_reward || ts.daily_reward || '';
+            const bonusTasksVal = acc.daily_bonus_tasks || ts.daily_bonus_tasks || '';
+            const bonusRewardVal = acc.daily_bonus_reward || ts.daily_bonus_reward || '';
+
+            if (wrapperTasks) {
+                if (tasksVal) {
+                    wrapperTasks.classList.remove('hidden');
+                    const formatted = tasksVal.split(' | ').join('\n');
+                    if (elTasks.textContent !== formatted) elTasks.textContent = formatted;
+                } else {
+                    wrapperTasks.classList.add('hidden');
+                }
+            }
+
+            if (wrapperReward) {
+                if (rewardVal) {
+                    wrapperReward.classList.remove('hidden');
+                    const formatted = rewardVal.split(' | ').join('\n');
+                    if (elReward.textContent !== formatted) elReward.textContent = formatted;
+                } else {
+                    wrapperReward.classList.add('hidden');
+                }
+            }
+
+            if (wrapperBonusTasks) {
+                if (bonusTasksVal) {
+                    wrapperBonusTasks.classList.remove('hidden');
+                    const formatted = bonusTasksVal.split(' | ').join('\n');
+                    if (elBonusTasks.textContent !== formatted) elBonusTasks.textContent = formatted;
+                } else {
+                    wrapperBonusTasks.classList.add('hidden');
+                }
+            }
+
+            if (wrapperBonusReward) {
+                if (bonusRewardVal) {
+                    wrapperBonusReward.classList.remove('hidden');
+                    const formatted = bonusRewardVal.split(' | ').join('\n');
+                    if (elBonusReward.textContent !== formatted) elBonusReward.textContent = formatted;
+                } else {
+                    wrapperBonusReward.classList.add('hidden');
+                }
+            }
         }
 
         // Характеристики Семьи:

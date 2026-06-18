@@ -7,6 +7,9 @@ class KnowledgeBase:
     ACTION_INFO = "info"
     ACTION_STATS = "stats"
     ACTION_INVENTORY = "inventory"
+    ACTION_EQUIPMENT = "equipment"
+    ACTION_FEED = "feed"
+    ACTION_DAILIES = "dailies"
 
     # Регулярные выражения триггеров команд пользователя
     COMMAND_TRIGGERS = {
@@ -25,6 +28,18 @@ class KnowledgeBase:
         ACTION_INVENTORY: re.compile(
             r"^мой\s+инвентарь$",
             re.IGNORECASE
+        ),
+        ACTION_EQUIPMENT: re.compile(
+            r"^мое\s+снаряжение$",
+            re.IGNORECASE
+        ),
+        ACTION_FEED: re.compile(
+            r"^покормить\s+жабу$",
+            re.IGNORECASE
+        ),
+        ACTION_DAILIES: re.compile(
+            r"^(дейлики|ежедневные\s+задания)$",
+            re.IGNORECASE
         )
     }
 
@@ -34,6 +49,9 @@ class KnowledgeBase:
         ACTION_INFO: False,
         ACTION_STATS: False,
         ACTION_INVENTORY: False,
+        ACTION_EQUIPMENT: False,
+        ACTION_FEED: False,
+        ACTION_DAILIES: False,
     }
 
     # Регулярные выражения для распознавания ответов Жабабота и обновления БД
@@ -113,6 +131,31 @@ class KnowledgeBase:
         {
             "pattern": re.compile(r"Твой инвентарь:", re.IGNORECASE | re.DOTALL),
             "action_type": ACTION_INVENTORY,
+            "db_updates": {}
+        },
+        # --- МОЕ СНАРЯЖЕНИЕ ---
+        {
+            "pattern": re.compile(r"Ближний бой:[\s\S]*?(?:Дальний бой|Наголовник|Нагрудник|Налапники)", re.IGNORECASE | re.DOTALL),
+            "action_type": ACTION_EQUIPMENT,
+            "db_updates": {}
+        },
+        # --- ПОКОРМИТЬ ЖАБУ ---
+        {
+            # Кулдаун кормления
+            "pattern": re.compile(r"покормить\s+жабулю\s+через", re.IGNORECASE),
+            "action_type": ACTION_FEED,
+            "db_updates": {}
+        },
+        {
+            # Успешное кормление (текст "ты получил")
+            "pattern": re.compile(r"ты\s+получил", re.IGNORECASE),
+            "action_type": ACTION_FEED,
+            "db_updates": {}
+        },
+        # --- ДЕЙЛИКИ ---
+        {
+            "pattern": re.compile(r"Ежедневные\s+задания:", re.IGNORECASE),
+            "action_type": ACTION_DAILIES,
             "db_updates": {}
         }
     ]

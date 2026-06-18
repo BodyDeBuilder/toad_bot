@@ -11,6 +11,8 @@ from src.utils.toad_info_parser import (
     parse_toad_info,
     parse_my_toad,
     parse_inventory,
+    parse_equipment,
+    parse_dailies,
     toad_state_to_account_fields,
 )
 
@@ -216,6 +218,15 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                             if parsed_fields:
                                 await db.save_toad_state(vk_id, parsed_fields)
                                 parsed_fields = {}
+                        elif action_type == KnowledgeBase.ACTION_EQUIPMENT:
+                            parsed_fields = parse_equipment(text)
+                            if parsed_fields:
+                                await db.save_toad_state(vk_id, parsed_fields)
+                                parsed_fields = {}
+                        elif action_type == KnowledgeBase.ACTION_DAILIES:
+                            parsed_fields = parse_dailies(text)
+                            if parsed_fields:
+                                await db.save_toad_state(vk_id, parsed_fields)
                         else:
                             # Стандартный парсинг из регулярного выражения Базы Знаний
                             for col, rule in db_updates.items():
