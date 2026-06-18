@@ -13,6 +13,7 @@ from src.utils.toad_info_parser import (
     parse_inventory,
     parse_equipment,
     parse_dailies,
+    parse_family,
     toad_state_to_account_fields,
 )
 
@@ -174,9 +175,14 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                     # не содержит теги другого игрока (то есть не адресовано явно кому-то еще)
                     if not is_for_us:
                         if not is_for_someone_else:
-                            pending_cmd = pending_manager.match_pending_command(action_type, target_vk_id=vk_id)
-                            if pending_cmd:
-                                is_for_us = True
+                            if action_type == "excel_моя_семья" and acc.get("name"):
+                                first_line = text.split("\n")[0]
+                                if acc["name"].lower() in first_line.lower():
+                                    is_for_us = True
+                            if not is_for_us:
+                                pending_cmd = pending_manager.match_pending_command(action_type, target_vk_id=vk_id)
+                                if pending_cmd:
+                                    is_for_us = True
                     else:
                         pending_manager.match_pending_command(action_type, target_vk_id=vk_id)
 
@@ -227,6 +233,8 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                             parsed_fields = parse_dailies(text)
                             if parsed_fields:
                                 await db.save_toad_state(vk_id, parsed_fields)
+                        elif action_type == "excel_моя_семья":
+                            parsed_fields = parse_family(text, acc.get("name", ""))
                         else:
                             # Стандартный парсинг из регулярного выражения Базы Знаний
                             for col, rule in db_updates.items():

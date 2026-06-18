@@ -2,6 +2,8 @@ import asyncio
 import logging
 import sys
 import uvicorn
+import truststore
+truststore.inject_into_ssl()
 from config import settings
 from src.database.db_manager import DBManager
 from src.vk.client_manager import ClientManager

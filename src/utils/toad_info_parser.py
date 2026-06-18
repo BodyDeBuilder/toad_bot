@@ -776,3 +776,109 @@ def parse_dailies(text: str) -> dict | None:
 
     return result
 
+
+def parse_family(text: str, current_account_name: str = "") -> Optional[Dict[str, Any]]:
+    """
+    Разбирает ответ на команду "Моя семья".
+    Возвращает dict с полями для обновления таблицы accounts или None, если текст не относится к команде.
+    """
+    text_clean = text.replace('\r', '').strip()
+
+    # Проверяем ключевые маркеры
+    if "количество дней в браке:" not in text_clean.lower() and "ваш жабёныш:" not in text_clean.lower():
+        return None
+
+    result: dict = {
+        "partner": "Нет",
+        "marriage_days": 0,
+        "candies": 0,
+        "froglet": "Нет",
+        "family_level": 1,
+        "family_satiety": "Сыт",
+        "family_authority": 0,
+        "family_mood": "Спокойное",
+        "feed_in": "—",
+        "kindergarten": "—",
+        "clash": "—"
+    }
+
+    # 1. Партнер
+    partner_match = re.search(r"💖\s*(.*?)\s*и\s*(.*?):", text_clean)
+    if partner_match:
+        spouse_1 = partner_match.group(1).strip()
+        spouse_2 = partner_match.group(2).strip()
+        if current_account_name:
+            # Сравниваем регистронезависимо или на подстроку
+            c_name_lower = current_account_name.lower()
+            s1_lower = spouse_1.lower()
+            s2_lower = spouse_2.lower()
+            if s1_lower == c_name_lower or s1_lower in c_name_lower or c_name_lower in s1_lower:
+                result["partner"] = spouse_2
+            else:
+                result["partner"] = spouse_1
+        else:
+            result["partner"] = spouse_2
+
+    # 2. Дни в браке
+    days_match = re.search(r"💍 Количество дней в браке:\s*(\d+)", text_clean, re.IGNORECASE)
+    if days_match:
+        result["marriage_days"] = int(days_match.group(1))
+
+    # 3. Конфетки
+    candies_match = re.search(r"🍬 Конфетки:\s*(\d+)", text_clean, re.IGNORECASE)
+    if candies_match:
+        result["candies"] = int(candies_match.group(1))
+
+    # 4. Имя жабёнка
+    froglet_match = re.search(r"🐸 Имя жабёнка:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if froglet_match:
+        result["froglet"] = froglet_match.group(1).strip()
+
+    # 5. Уровень
+    level_match = re.search(r"[⭐⭐️] Уровень:\s*(\d+)", text_clean, re.IGNORECASE)
+    if level_match:
+        result["family_level"] = int(level_match.group(1))
+
+    # 6. Сытость
+    satiety_match = re.search(r"🍰 Сытость:\s*(\d+/\d+)", text_clean, re.IGNORECASE)
+    if satiety_match:
+        result["family_satiety"] = satiety_match.group(1).strip()
+
+    # 7. Авторитет
+    authority_match = re.search(r"😎 Авторитет:\s*(\d+)(?:/\d+)?", text_clean, re.IGNORECASE)
+    if authority_match:
+        result["family_authority"] = int(authority_match.group(1))
+
+    # 8. Настроение
+    mood_match = re.search(r"🙂 Настроение:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if mood_match:
+        result["family_mood"] = mood_match.group(1).strip()
+
+    # 9. Кулдаун кормления ("Покормить через")
+    if "[Кнопка: Покормить жабенка]" in text_clean:
+        result["feed_in"] = "Готово"
+    else:
+        feed_match = re.search(r"😋 Можно покормить через\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+        if feed_match:
+            result["feed_in"] = feed_match.group(1).strip()
+
+    # 10. Кулдаун детского сада ("Забрать через")
+    if "[Кнопка: Отправить жабенка в детсад]" in text_clean:
+        result["kindergarten"] = "Нет"
+    elif "[Кнопка: Забрать жабенка]" in text_clean:
+        result["kindergarten"] = "Можно забрать"
+    else:
+        nursery_match = re.search(r"[🕒⏳] Можно забрать через\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+        if nursery_match:
+            result["kindergarten"] = nursery_match.group(1).strip()
+
+    # 11. Кулдаун махача ("Махач через")
+    if "[Кнопка: Отправить жабенка на махач]" in text_clean:
+        result["clash"] = "Доступен"
+    else:
+        clash_match = re.search(r"👊 Пойти на махач через\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+        if clash_match:
+            result["clash"] = clash_match.group(1).strip()
+
+    return result
+

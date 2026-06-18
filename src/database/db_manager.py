@@ -72,6 +72,8 @@ class DBManager:
                     family_level INTEGER DEFAULT 1,
                     family_satiety TEXT DEFAULT 'Сыт',
                     family_authority INTEGER DEFAULT 0,
+                    candies INTEGER DEFAULT 0,
+                    family_mood TEXT DEFAULT 'Спокойное',
                     kindergarten TEXT DEFAULT 'Нет',
                     clash TEXT DEFAULT 'Доступен',
                     feed_in TEXT DEFAULT 'Готово',
@@ -318,7 +320,7 @@ class DBManager:
                 await conn.execute("ALTER TABLE active_monitored_messages ADD COLUMN player_vk_id INTEGER;")
             except sqlite3.OperationalError:
                 pass
-            for new_col, new_type in [("daily_tasks", "TEXT"), ("daily_reward", "TEXT"), ("daily_bonus_tasks", "TEXT"), ("daily_bonus_reward", "TEXT")]:
+            for new_col, new_type in [("daily_tasks", "TEXT"), ("daily_reward", "TEXT"), ("daily_bonus_tasks", "TEXT"), ("daily_bonus_reward", "TEXT"), ("candies", "INTEGER DEFAULT 0"), ("family_mood", "TEXT DEFAULT 'Спокойное'")]:
                 try:
                     await conn.execute(f"ALTER TABLE accounts ADD COLUMN {new_col} {new_type};")
                 except sqlite3.OperationalError:
@@ -344,13 +346,13 @@ class DBManager:
             """)
             await conn.commit()
 
-            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики")
-            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики"):
+            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья")
+            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья"):
                 await conn.execute(
                     "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
                 )
-            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо», «Мой инвентарь», «Мое снаряжение», «Покормить жабу» и «Дейлики»
-            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики')")
+            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо», «Мой инвентарь», «Мое снаряжение», «Покормить жабу», «Дейлики» и «Моя семья»
+            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья')")
             await conn.commit()
 
             # Обеспечиваем наличие команды 'inventory' в commands_registry
@@ -383,7 +385,7 @@ class DBManager:
 
 
             # Посев тестовых правил распознавания
-            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики')") as cursor:
+            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья')") as cursor:
                 cmd_rows = await cursor.fetchall()
                 cmd_ids = {row["command"]: row["id"] for row in cmd_rows}
 
@@ -884,6 +886,34 @@ class DBManager:
                                 VALUES (?, ?, ?, ?)
                             """, (sub_id, fr"{task_name} \[\d+/\d+\]", task_name, var_name))
 
+            if "Моя семья" in cmd_ids:
+                cmd_id = cmd_ids["Моя семья"]
+                async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (cmd_id,)) as cursor:
+                    cnt_row = await cursor.fetchone()
+                    if cnt_row and cnt_row["cnt"] == 0:
+                        rules_data = [
+                            ("Партнер", r"💖\s*(?P<partner>[^\n]+)", "Партнер = {partner}", "partner"),
+                            ("Дни в браке", r"💍 Количество дней в браке:\s*(?P<marriage_days>\d+)", "Дней в браке = {marriage_days}", "marriage_days"),
+                            ("Конфетки", r"🍬 Конфетки:\s*(?P<candies>\d+)", "Конфетки = {candies}", "candies"),
+                            ("Имя жабёнка", r"🐸 Имя жабёнка:\s*(?P<froglet>[^\n]+)", "Имя жабёнка = {froglet}", "froglet"),
+                            ("Уровень", r"[⭐⭐️] Уровень:\s*(?P<family_level>\d+)", "Уровень = {family_level}", "family_level"),
+                            ("Сытость", r"🍰 Сытость:\s*(?P<family_satiety>\d+/\d+)", "Сытость = {family_satiety}", "family_satiety"),
+                            ("Авторитет", r"😎 Авторитет:\s*(?P<family_authority>\d+/\d+|\d+)", "Авторитет = {family_authority}", "family_authority"),
+                            ("Настроение", r"🙂 Настроение:\s*(?P<family_mood>[^\n]+)", "Настроение = {family_mood}", "family_mood"),
+                            ("Покормить через", r"😋 Можно покормить через\s*(?P<feed_in>[^\n]+)", "Покормить через = {feed_in}", "feed_in"),
+                            ("Забрать через", r"[🕒⏳] Можно забрать через\s*(?P<kindergarten>[^\n]+)", "Забрать через = {kindergarten}", "kindergarten"),
+                            ("Махач через", r"👊 Пойти на махач через\s*(?P<clash>[^\n]+)", "Махач через = {clash}", "clash"),
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+
             await conn.commit()
             
         # Посев дефолтных правил, если таблицы пусты или не все команды на месте
@@ -932,7 +962,49 @@ class DBManager:
                             """, (sub_id,))
                             logger.info("Миграция: Добавлено новое правило для тусы.")
 
-            # 3. Добавление подкоманд и правил для "Мой инвентарь" (на случай если база уже создана или имеет старый формат)
+            # 3. Миграция для "Моя семья"
+            await conn.execute("UPDATE commands_registry SET trigger_regex = '^моя\\s+семья$' WHERE action_type = 'excel_моя_семья'")
+            async with conn.execute("SELECT 1 FROM response_templates WHERE action_type = 'excel_моя_семья'") as cursor_tpl:
+                if not await cursor_tpl.fetchone():
+                    await conn.execute("""
+                        INSERT INTO response_templates (action_type, pattern_name, response_type, regex, db_updates)
+                        VALUES ('excel_моя_семья', 'Разбор семьи', 'success', '💖[\\s\\S]*?и[\\s\\S]*?:', '{}')
+                    """)
+            
+            # 4. Добавление подкоманд и правил для "Моя семья" (на случай если база уже создана)
+            async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Моя семья'") as cursor_fam:
+                fam_row = await cursor_fam.fetchone()
+                if fam_row:
+                    fam_cmd_id = fam_row["id"]
+                    async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (fam_cmd_id,)) as sub_cursor:
+                        fam_sub_cnt = (await sub_cursor.fetchone())["cnt"]
+                    
+                    if fam_sub_cnt == 0:
+                        rules_data = [
+                            ("Партнер", r"💖\s*(?P<partner>[^\n]+)", "Партнер = {partner}", "partner"),
+                            ("Дни в браке", r"💍 Количество дней в браке:\s*(?P<marriage_days>\d+)", "Дней в браке = {marriage_days}", "marriage_days"),
+                            ("Конфетки", r"🍬 Конфетки:\s*(?P<candies>\d+)", "Конфетки = {candies}", "candies"),
+                            ("Имя жабёнка", r"🐸 Имя жабёнка:\s*(?P<froglet>[^\n]+)", "Имя жабёнка = {froglet}", "froglet"),
+                            ("Уровень", r"[⭐⭐️] Уровень:\s*(?P<family_level>\d+)", "Уровень = {family_level}", "family_level"),
+                            ("Сытость", r"🍰 Сытость:\s*(?P<family_satiety>\d+/\d+)", "Сытость = {family_satiety}", "family_satiety"),
+                            ("Авторитет", r"😎 Авторитет:\s*(?P<family_authority>\d+/\d+|\d+)", "Авторитет = {family_authority}", "family_authority"),
+                            ("Настроение", r"🙂 Настроение:\s*(?P<family_mood>[^\n]+)", "Настроение = {family_mood}", "family_mood"),
+                            ("Покормить через", r"😋 Можно покормить через\s*(?P<feed_in>[^\n]+)", "Покормить через = {feed_in}", "feed_in"),
+                            ("Забрать через", r"[🕒⏳] Можно забрать через\s*(?P<kindergarten>[^\n]+)", "Забрать через = {kindergarten}", "kindergarten"),
+                            ("Махач через", r"👊 Пойти на махач через\s*(?P<clash>[^\n]+)", "Махач через = {clash}", "clash"),
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (fam_cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+                        logger.info("Миграция: Добавлены правила распознавания для 'Моя семья'.")
+
+            # 5. Добавление подкоманд и правил для "Мой инвентарь" (на случай если база уже создана или имеет старый формат)
             async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Мой инвентарь'") as cursor:
                 inv_row = await cursor.fetchone()
                 if inv_row:
@@ -1294,7 +1366,7 @@ class DBManager:
             # Статический список импортированных команд из Excel (разовый импорт)
             excel_commands = [
                 ('excel_мой_инвентарь', 'Мой инвентарь', '', 0),
-                ('excel_моя_семья', 'Моя семья', '', 0),
+                ('excel_моя_семья', 'Моя семья', r'^моя\s+семья$', 0),
                 ('excel_дейлики', 'Дейлики', '', 0),
                 ('excel_взять_жабу', 'Взять жабу', '', 0),
                 ('excel_жаба_дня', 'Жаба дня', '', 0),
@@ -1726,10 +1798,12 @@ class DBManager:
                     positions = 'Рядовой',
                     partner = 'Нет',
                     marriage_days = 0,
+                    candies = 0,
                     froglet = 'Нет',
                     family_level = 1,
                     family_satiety = 'Сыт',
                     family_authority = 0,
+                    family_mood = 'Спокойное',
                     kindergarten = 'Нет',
                     clash = 'Доступен',
                     feed_in = 'Готово',
@@ -2154,6 +2228,20 @@ class DBManager:
             if parsed_data is not None:
                 if player_vk_id is not None:
                     await self.save_toad_state(player_vk_id, parsed_data)
+                return "Да"
+            return "Нет"
+
+        if command_name == "Моя семья":
+            from src.utils.toad_info_parser import parse_family
+            acc_name = ""
+            if player_vk_id is not None:
+                async with conn.execute("SELECT name FROM accounts WHERE vk_id = ?", (player_vk_id,)) as acc_cursor:
+                    acc_row = await acc_cursor.fetchone()
+                    acc_name = acc_row["name"] if acc_row else ""
+            parsed_data = parse_family(text, acc_name)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.update_account_fields(player_vk_id, parsed_data)
                 return "Да"
             return "Нет"
 

@@ -1930,10 +1930,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         fattening: state.accounts.filter(a => a.fattening === 'Да').length + " на откорме",
                         partner: state.accounts.filter(a => a.partner && a.partner !== 'Нет').length + " в браке",
                         marriage_days: state.accounts.reduce((sum, a) => sum + (a.marriage_days || 0), 0),
+                        candies: state.accounts.reduce((sum, a) => sum + (a.candies || 0), 0),
                         froglet: state.accounts.filter(a => a.froglet && a.froglet !== 'Нет').length + " жабят",
                         family_level: state.accounts.reduce((sum, a) => sum + (a.family_level || 0), 0),
                         family_satiety: state.accounts.filter(a => a.family_satiety === 'Сыт').length + " сытых",
                         family_authority: state.accounts.reduce((sum, a) => sum + (a.family_authority || 0), 0),
+                        family_mood: "Сводные",
                         kindergarten: state.accounts.filter(a => a.kindergarten && a.kindergarten !== 'Нет').length + " в садике",
                         clash: state.accounts.filter(a => a.clash === 'Доступен').length + " готовы",
                         feed_in: "Сводные",
@@ -2324,10 +2326,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 fattening: state.accounts.filter(a => a.fattening === 'Да').length + " на откорме",
                 partner: state.accounts.filter(a => a.partner && a.partner !== 'Нет').length + " в браке",
                 marriage_days: state.accounts.reduce((sum, a) => sum + (a.marriage_days || 0), 0),
+                candies: state.accounts.reduce((sum, a) => sum + (a.candies || 0), 0),
                 froglet: state.accounts.filter(a => a.froglet && a.froglet !== 'Нет').length + " жабят",
                 family_level: state.accounts.reduce((sum, a) => sum + (a.family_level || 0), 0),
                 family_satiety: state.accounts.filter(a => a.family_satiety === 'Сыт').length + " сытых",
                 family_authority: state.accounts.reduce((sum, a) => sum + (a.family_authority || 0), 0),
+                family_mood: "Сводные",
                 kindergarten: state.accounts.filter(a => a.kindergarten && a.kindergarten !== 'Нет').length + " в садике",
                 clash: state.accounts.filter(a => a.clash === 'Доступен').length + " готовы",
                 feed_in: "Сводные",
@@ -2601,7 +2605,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-value" id="stat-row-family-marriage-days">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
-                                                <span class="stat-label">Жабенок</span>
+                                                <span class="stat-label">Конфетки</span>
+                                                <span class="stat-value" id="stat-row-family-candies">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Имя жабёнка</span>
                                                 <span class="stat-value" id="stat-row-family-froglet">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
@@ -2617,16 +2625,20 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-value" id="stat-row-family-authority">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
-                                                <span class="stat-label">Садик</span>
-                                                <span class="stat-value" id="stat-row-family-kindergarten">Загрузка...</span>
-                                            </div>
-                                            <div class="stat-row">
-                                                <span class="stat-label">Махач</span>
-                                                <span class="stat-value" id="stat-row-family-clash">Загрузка...</span>
+                                                <span class="stat-label">Настроение</span>
+                                                <span class="stat-value" id="stat-row-family-mood">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
                                                 <span class="stat-label">Покормить через</span>
                                                 <span class="stat-value" id="stat-row-family-feed-in">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Забрать через</span>
+                                                <span class="stat-value" id="stat-row-family-kindergarten">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Махач через</span>
+                                                <span class="stat-value" id="stat-row-family-clash">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3530,6 +3542,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowFamilyMarriageDays.textContent !== val) rowFamilyMarriageDays.textContent = val;
         }
 
+        const rowFamilyCandies = document.getElementById('stat-row-family-candies');
+        if (rowFamilyCandies) {
+            let val;
+            if (acc.vk_id === 0) {
+                val = `🍬 ${acc.candies || 0} (сумма)`;
+            } else {
+                val = `🍬 ${acc.candies || 0}`;
+            }
+            if (rowFamilyCandies.textContent !== val) rowFamilyCandies.textContent = val;
+        }
+
         const rowFamilyFroglet = document.getElementById('stat-row-family-froglet');
         if (rowFamilyFroglet) {
             const val = acc.froglet || 'Нет';
@@ -3564,22 +3587,28 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowFamilyAuthority.textContent !== val) rowFamilyAuthority.textContent = val;
         }
 
+        const rowFamilyMood = document.getElementById('stat-row-family-mood');
+        if (rowFamilyMood) {
+            const val = acc.family_mood || 'Спокойное';
+            if (rowFamilyMood.textContent !== val) rowFamilyMood.textContent = val;
+        }
+
+        const rowFamilyFeedIn = document.getElementById('stat-row-family-feed-in');
+        if (rowFamilyFeedIn) {
+            const val = acc.feed_in || '—';
+            if (rowFamilyFeedIn.textContent !== val) rowFamilyFeedIn.textContent = val;
+        }
+
         const rowFamilyKindergarten = document.getElementById('stat-row-family-kindergarten');
         if (rowFamilyKindergarten) {
-            const val = acc.kindergarten || 'Нет';
+            const val = acc.kindergarten || '—';
             if (rowFamilyKindergarten.textContent !== val) rowFamilyKindergarten.textContent = val;
         }
 
         const rowFamilyClash = document.getElementById('stat-row-family-clash');
         if (rowFamilyClash) {
-            const val = acc.clash || 'Доступен';
+            const val = acc.clash || '—';
             if (rowFamilyClash.textContent !== val) rowFamilyClash.textContent = val;
-        }
-
-        const rowFamilyFeedIn = document.getElementById('stat-row-family-feed-in');
-        if (rowFamilyFeedIn) {
-            const val = acc.feed_in || 'Готово';
-            if (rowFamilyFeedIn.textContent !== val) rowFamilyFeedIn.textContent = val;
         }
 
         // Сезонная арена:
