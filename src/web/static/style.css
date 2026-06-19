@@ -1534,6 +1534,45 @@ select:-webkit-autofill {
     gap: 4px;
 }
 
+.stat-row.stat-row-vertical {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 6px 0;
+    width: 100%;
+}
+
+.stat-row.stat-row-vertical .stat-label {
+    margin-bottom: 4px;
+}
+
+.stat-row.stat-row-vertical .stat-value {
+    text-align: left;
+    white-space: pre-line;
+    padding-left: 24px;
+    width: 100%;
+    box-sizing: border-box;
+    font-weight: 400;
+    display: block;
+}
+
+.clan-member-line, .clan-achievement-line {
+    padding: 2px 0;
+    line-height: 1.4;
+}
+
+.highlighted-clan-member {
+    display: inline-block;
+    padding: 2px 8px;
+    margin: 1px 0 1px -8px;
+    border: 1.5px solid #facc15;
+    background: rgba(250, 204, 21, 0.08);
+    border-radius: 6px;
+    font-weight: 700;
+    color: #facc15;
+    box-shadow: 0 0 8px rgba(250, 204, 21, 0.15);
+    line-height: 1.4;
+}
+
 /* ========================================== */
 /*   Стили таймеров обновления статистики     */
 /* ========================================== */

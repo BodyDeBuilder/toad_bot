@@ -185,6 +185,7 @@
                     <button class="tab-btn" id="btn-tab-recognition" style="background: none; border: none; font-size: 13px; font-weight: 600; padding: 6px 12px; cursor: pointer; transition: all 0.2s; color: var(--color-text-muted);">Распознавание</button>
                     <button class="tab-btn" id="btn-tab-debug" style="background: none; border: none; font-size: 13px; font-weight: 600; padding: 6px 12px; cursor: pointer; transition: all 0.2s; color: var(--color-text-muted);">Отладка</button>
                     <button class="tab-btn" id="btn-tab-test" style="background: none; border: none; font-size: 13px; font-weight: 600; padding: 6px 12px; cursor: pointer; transition: all 0.2s; color: var(--color-text-muted);">Тест</button>
+                    <button class="tab-btn" id="btn-tab-delta-audit" style="background: none; border: none; font-size: 13px; font-weight: 600; padding: 6px 12px; cursor: pointer; transition: all 0.2s; color: var(--color-text-muted);">Аудит дельт</button>
                 </div>
                 <!-- Контейнер для кнопок управления вкладки Мониторинг -->
                 <div id="monitor-actions-header" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; font-size: 13px; margin-top: 4px;">
@@ -295,8 +296,17 @@
                         <div id="test-status-msg" style="font-size: 12px; color: var(--color-danger); display: none;"></div>
                     </div>
                 </div>
+                <!-- Панель 5: Аудит дельт -->
+                <div id="panel-delta-audit-tab" class="hidden" style="width: 100%; height: 100%; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 12px; color: var(--color-text-muted);">Журнал инкрементов, декрементов и предупреждений о ненаходе обязательных полей</span>
+                        <button id="btn-clear-delta-audit" class="btn secondary small" style="padding: 4px 12px; font-size: 11px; margin: 0; background: transparent; border-color: var(--border-glass-hover); color: var(--color-text-main); cursor: pointer; border-radius: 6px;">Очистить</button>
+                    </div>
+                    <div id="delta-audit-table-container" style="overflow-y: auto; flex-grow: 1; min-height: 0;">
+                        <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">Загрузка...</div>
+                    </div>
+                </div>
             </div>
-            
             <div class="modal-actions" style="justify-content: flex-end; gap: 12px; flex-shrink: 0; border-top: 1px solid var(--border-glass); padding-top: 12px; margin-top: 0;">
                 <button type="button" class="btn secondary" id="btn-close-monitor-footer">Закрыть</button>
             </div>

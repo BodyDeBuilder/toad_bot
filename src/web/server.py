@@ -600,6 +600,22 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
             logger.error(f"Ошибка при переключении in_recognition для команды ID {command_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
+    @app.post("/api/monitor/commands/{command_id}/description")
+    async def update_command_description(command_id: int, payload: dict, username: str = Depends(authenticate)):
+        """Обновление описания команды"""
+        try:
+            description = str(payload.get("description", ""))[:500]
+            async with db._connect() as conn:
+                await conn.execute(
+                    "UPDATE monitored_commands SET description = ? WHERE id = ?",
+                    (description, command_id)
+                )
+                await conn.commit()
+            return {"status": "success", "message": "Описание обновлено"}
+        except Exception as e:
+            logger.error(f"Ошибка обновления описания команды ID {command_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
     @app.get("/api/monitor/commands/{command_id}/recognition/rules")
     async def get_monitored_command_recognition_rules(command_id: int, username: str = Depends(authenticate)):
         """Получение правил распознавания для команды"""
@@ -756,6 +772,36 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
         except Exception as e:
             logger.error(f"Ошибка при интерактивном тестировании распознавания: {e}", exc_info=True)
             return {"success": False, "error": f"Внутренняя ошибка сервера: {str(e)}"}
+
+    @app.get("/api/monitor/delta-audit")
+    async def get_delta_audit(limit: int = 200, username: str = Depends(authenticate)):
+        """Возвращает записи из delta_audit (аудит инкрементов и ненаходов)"""
+        try:
+            async with db._connect_rec() as conn:
+                async with conn.execute(
+                    """SELECT id, vk_id, command, event_type, field_name,
+                              delta_value, old_value, new_value, raw_text, created_at
+                       FROM delta_audit
+                       ORDER BY id DESC LIMIT ?""",
+                    (min(limit, 500),)
+                ) as cursor:
+                    rows = [dict(r) for r in await cursor.fetchall()]
+            return {"success": True, "rows": rows}
+        except Exception as e:
+            logger.error(f"Ошибка получения delta_audit: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.delete("/api/monitor/delta-audit")
+    async def clear_delta_audit(username: str = Depends(authenticate)):
+        """Очищает таблицу delta_audit"""
+        try:
+            async with db._connect_rec() as conn:
+                await conn.execute("DELETE FROM delta_audit")
+                await conn.commit()
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка очистки delta_audit: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
     @app.get("/api/monitor/download")
     async def download_monitor_report(username: str = Depends(authenticate)):

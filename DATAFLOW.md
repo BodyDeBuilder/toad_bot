@@ -54,12 +54,16 @@
 | **«Мой инвентарь»** (предметы) | `inv_lollipop`, `inv_bandages`, `inv_beer`, `inv_dragonfly`, `inv_map`, `inv_tape`, `inv_gang_frogs`, `inv_exp_capsule` | `parse_inventory` |
 | **Инвентарь: снаряжение** | `eq_pass`, `eq_lockpick`, `eq_battery` | `parse_inventory` |
 | **Инвентарь: крафт** | `cr_puzzle`, `cr_link`, `cr_stone`, `cr_mask`, `cr_paper`, `cr_lightning` | `parse_inventory` |
-| **«Покормить жабу»** | `feed_info` (`"fed"`/`"cooldown"`), `feed_cooldown`, + переиспользует `satiety_cur`, `satiety_max`, `mood`, `bugs`. Сырой лут → `feed_loot` (опц., колонка добавляется при необходимости) | `parse_feed` |
+| **«Покормить жабу»** | `feed_info` (`"fed"`/`"cooldown"`), `feed_cooldown`, `feed_loot` (сырой текст лута, опц.), + переиспользует `satiety_cur`, `satiety_max`, `mood`, `bugs`. **Тип парсера: `additive`** — `bugs` и лут-предметы пишутся через инкремент (`_deltas`), `satiety_cur`/`mood` обязательны (ненаход → алерт), `feed_loot` опционален (ненаход → NULL/прочерк). | `parse_feed` |
 | **Метаданные** | `vk_id` (PK), `last_updated` | Автоматически |
 
 > **Единицы кулдаунов:** все `*_cooldown` колонки (`work_cooldown`, `feed_cooldown`, `fattening_cooldown`, `dungeon_cooldown`, `arena_cooldown`) хранятся в **СЕКУНДАХ** (INTEGER). `last_updated` — время парса в формате `DD.MM.YYYY HH:MM:SS` (MSK). Вместе они позволяют считать остаток кулдауна в реальном времени (см. §6.1).
 
 Полная схема: `db_manager.py:851-900`.
+
+### `delta_audit` (recognition.db)
+
+Журнал аудита инкрементов/декрементов и предупреждений о ненаходе обязательных полей. См. §4.2.
 
 ---
 
@@ -85,13 +89,21 @@ handlers.py → определение action_type через KnowledgeBase
      │     parse_inventory(text) → dict
      │     └── save_toad_state(vk_id, dict) → recognition.db  (в bot.db ничего)
      │
-     ├── ACTION_FEED ("Покормить жабу")
-     │     parse_feed(text) → dict
-     │     └── save_toad_state(vk_id, dict) → recognition.db  (в bot.db ничего)
+     ├── ACTION_FEED ("Покормить жабу")  [parser_type: additive]
+     │     parse_feed(text) → dict (+ _deltas, _missing_required, _optional_nulls)
+     │     └── save_toad_state(vk_id, dict) → recognition.db
+     │           ├── перезаписываемые поля: SET col = ?
+     │           ├── _deltas: SET col = COALESCE(col,0) + N
+     │           ├── _optional_nulls: SET col = NULL
+     │           ├── _missing_required: оставить старое + алерт в delta_audit
+     │           └── все события пишутся в delta_audit
      │
-     └── Regex-команды
+     └── Regex-команды [parser_type: simple]
            match по recognition_rules → db_updates dict
-           └── update_account_fields(vk_id, db_updates) → bot.db
+           + response_type (success/cooldown/error) из response_templates
+           ├── response_type == "error"  → log_action(warning), БД не трогаем
+           ├── response_type == "cooldown" → инфо-лог, БД не трогаем
+           └── response_type == "success" → update_account_fields(vk_id, db_updates) → bot.db
 ```
 
 **Ключевой принцип:** `save_toad_state` пишет **всё** что распарсил парсер в `recognition.db`. `update_account_fields` пишет **выборочно** в `bot.db` — только те поля, которые нужны для UI-агрегации и быстрого доступа.
@@ -100,16 +112,43 @@ handlers.py → определение action_type через KnowledgeBase
 
 ## 4. `save_toad_state` — как работает
 
-`db_manager.py:1608-1705`
+`db_manager.py` (динамический UPDATE с 4 категориями вывода парсеров).
 
 ```python
 async def save_toad_state(self, vk_id: int, data: dict) -> None:
 ```
 
 - Проверяет, что `vk_id` существует в `bot.db.accounts` (иначе молча выходит).
-- `INSERT ... ON CONFLICT(vk_id) DO UPDATE SET ...` — upsert.
-- **Каждая колонка:** `COALESCE(excluded.<col>, toad_states.<col>)` — `None`-значения **не перезаписывают** существующие данные.
-- Это значит: если парсер не распознал поле (вернул `None` для него), старое значение сохраняется.
+- Разбирает служебные ключи из `data`: `_deltas`, `_missing_required`, `_optional_nulls`, `_command`, `_raw_text`.
+- **Динамический SQL:** имена колонок берутся из ключей `data`, **фильтруются по белому списку** `ALLOWED_COLUMNS` (защита от инъекций). Колонки вне списка молча игнорируются.
+
+### 4.1. Четыре категории записи
+
+| Категория | Откуда берётся | Как пишется в SQL | Когда применяется |
+|---|---|---|---|
+| **Перезапись (plain)** | Ключи `data` без подчёркивания | `SET col = ?` | `control`-парсеры: распознанное значение затирает старое |
+| **Дельта (инкремент)** | `data["_deltas"]` | `SET col = COALESCE(col, 0) + ?` | `additive`-парсеры: прибавка к текущему (NULL считается за 0) |
+| **Ненаход обязательного** | `data["_missing_required"]` | **не трогается** (оставить старое) | Любой парсер: обязательное поле не распознано → алерт |
+| **Ненаход опционального** | `data["_optional_nulls"]` | `SET col = NULL` (прочерк) | Любой парсер: опциональное поле не распознано → прочерк «—» |
+
+### 4.2. Аудит-след: таблица `delta_audit`
+
+Все события категорий «дельта», «ненаход обязательного» и «ненаход опционального» логируются в `recognition.db.delta_audit`:
+
+| Колонка | Что хранит |
+|---|---|
+| `vk_id` | ID аккаунта |
+| `command` | Имя команды (из `_command`) |
+| `event_type` | `delta` / `missing_required` / `optional_null` |
+| `field_name` | Имя колонки `toad_states` |
+| `delta_value` | Величина инкремента (для `delta`) |
+| `old_value`, `new_value` | До/после (для `delta`) |
+| `raw_text` | Сырой текст ответа (из `_raw_text`) |
+| `created_at` | Время события |
+
+В UI события видны во вкладке **«Аудит дельт»** модалки мониторинга (после вкладки «Тест»).
+
+> **Принципиальное отличие от старой версии:** раньше `COALESCE(excluded.col, toad_states.col)` на всех колонках означал «None никогда не перезаписывает». Теперь это поведение **явное и дифференцированное**: для опционального ненахода мы намеренно пишем NULL (прочерк), а не молча сохраняем старое. Это позволяет UI корректно показывать «поле не найдено в последнем ответе» вместо «поле осталось прежним».
 
 ---
 
@@ -195,6 +234,23 @@ async def save_toad_state(self, vk_id: int, data: dict) -> None:
 ## 7. Как добавить новую команду с Python-парсером
 
 > Эталонный пример реализации — команда **«Покормить жабу»** (см. `RECOGNITION_GUIDE.md` § 3.6).
+>
+> **Сначала выберите `parser_type`** по критериям в `project_specs.md` § 6.2 (control / simple / additive). Это определяет, как результат парсера запишется в БД.
+
+### 7.0. Проставить `parser_type` и `description` в посеве
+
+При посеве команды в `monitored_commands` укажите тип парсера и описание явно:
+
+```python
+await conn.execute(
+    "INSERT OR IGNORE INTO monitored_commands (command, parser_type, description) VALUES (?, ?, ?)",
+    ("Новая команда", "additive", "Краткое описание назначения команды...")
+    # parser_type: "control" / "simple" / "additive"
+)
+```
+
+- `parser_type` отображается цветным бейджем в шапке аккордеона вкладки «Распознавание».
+- `description` (до 500 символов) отображается серым текстом под именем команды и редактируется inline-кликом. Контекст для AI-агентов и справка (см. `project_specs.md` § 6).
 
 ### 7.1. Написать парсер
 
@@ -208,6 +264,26 @@ def parse_new_command(text: str) -> Optional[Dict[str, Any]]:
 ```
 
 Ключи результата парсера должны совпадать с колонками `toad_states` (или добавьте новые колонки в схему).
+
+**Для `additive`-парсеров** дополнительно возвращаются служебные ключи (эталон — `parse_feed`):
+
+```python
+result = {
+    # перезаписываемые поля (plain) — например satiety_cur, mood
+    "satiety_cur": 70, "mood": 95,
+    # инкременты — прибавляются к текущему значению в БД
+    "_deltas": {"bugs": 5},
+    # обязательные поля, которые не нашлись — оставить старое + алерт
+    "_missing_required": ["satiety_cur"],
+    # опциональные поля, которые не нашлись — записать NULL (прочерк)
+    "_optional_nulls": ["feed_loot"],
+    # метаданные для аудит-следа
+    "_command": "Покормить жабу",
+    "_raw_text": text,
+}
+```
+
+Ключи с подчёркиванием — служебные: `save_toad_state` их разбирает и не пытается записать как колонки БД. См. §4.
 
 ### 7.2. Зарегистрировать триггер в KnowledgeBase
 

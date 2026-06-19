@@ -317,6 +317,7 @@ class KnowledgeBase:
                 groups = match.groupdict()
                 return {
                     "action_type": entry["action_type"],
+                    "response_type": entry.get("response_type", "success"),
                     "db_updates": entry["db_updates"],
                     "groups": groups
                 }

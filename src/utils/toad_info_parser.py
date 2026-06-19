@@ -621,16 +621,18 @@ def parse_equipment(text: str) -> Optional[Dict[str, Any]]:
 def parse_feed(text: str) -> dict | None:
     """Парсит ответ Жабабота на команду «Покормить жабу».
 
-    Возвращает dict с распознанными полями или None, если текст не относится
-    к команде кормления.
+    Эталонный **additive-парсер**: извлекает дельты (приращения) для накопительных
+    полей и передаёт их через ``_deltas`` для инкрементального обновления в БД.
 
     Два основных сценария:
-      1. Кулдаун — «Покормить жабулю через N ч:M мин.»
+      1. Кулдаун — «Покормить жабулю через N ч:M мин.» (перезапись статуса)
       2. Успех — текст содержит «ты получил» + статичные эффекты + опциональный лут
 
-    Толерантный режим: парсим что можем, неизвестные строки пропускаем.
-    Ключи результата совместимы с колонками toad_states (feed_info, feed_cooldown,
-    satiety_cur, satiety_max, mood, bugs, feed_loot).
+    Возвращает dict с 4 категориями полей:
+      - Обычные значения → перезапись (feed_info, satiety_cur, satiety_max, mood)
+      - ``_deltas`` → инкремент (bugs, если числовое приращение)
+      - ``_missing_required`` → алерт, если обязательное поле не найдено
+      - ``_optional_nulls`` → прочерк для опциональных, которые отсутствуют
     """
     result: dict = {}
     text_clean = text.replace('\r', '').strip()
@@ -655,28 +657,34 @@ def parse_feed(text: str) -> dict | None:
 
     result["feed_info"] = "fed"
 
-    # Статичные эффекты при кормлении (всегда присутствуют при успехе):
-    # +1 сытость, +15 настроение, +N букашек.
-    # Ключи — как в toad_states: satiety_cur, satiety_max, mood, bugs.
+    # Обязательные поля (при успехе должны быть)
+    missing_required: list = []
+    # Опциональные поля (могут отсутствовать — при ненаходе ставим прочерк)
+    optional_fields: set = {"feed_loot"}
 
-    # Сытость
+    # Сытость (обязательная при успехе)
     satiety_match = re.search(r'Сытость[:\s]*(\d+)/(\d+)', text_clean)
     if satiety_match:
         result["satiety_cur"] = int(satiety_match.group(1))
         result["satiety_max"] = int(satiety_match.group(2))
+    else:
+        missing_required.append("satiety_cur")
 
-    # Настроение
+    # Настроение (обязательное при успехе)
     mood_match = re.search(r'Настроение[:\s]*([^\n\r]+?)(?:\s*\(|$)', text_clean)
     if mood_match:
         result["mood"] = mood_match.group(1).strip()
+    else:
+        missing_required.append("mood")
 
-    # Букашки (количество полученных или текущий баланс)
+    # Букашки — приращение (additive: delta, не абсолютное значение)
     bugs_match = re.search(r'([+-]?\d+)\s*ба?на?шек?', text_clean, re.IGNORECASE)
     if bugs_match:
-        result["bugs"] = int(bugs_match.group(1))
+        bugs_delta = int(bugs_match.group(1))
+        result.setdefault("_deltas", {})["bugs"] = bugs_delta
+    # bugs — опциональная дельта, не алертим при ненаходе
 
-    # --- Динамический лут ---
-    # Ищем весь текст после «ты получил» и собираем строки с эмодзи
+    # --- Динамический лут (опциональный) ---
     loot_items = []
     loot_section = re.search(r'ты\s+получил[:\s]*\n([\s\S]+?)(?:\n{2,}|\Z)', text_clean, re.IGNORECASE)
     if loot_section:
@@ -690,6 +698,17 @@ def parse_feed(text: str) -> dict | None:
 
     if loot_items:
         result["feed_loot"] = " | ".join(loot_items)
+    else:
+        # Опциональное поле не найдено → прочерк (NULL в БД)
+        result.setdefault("_optional_nulls", []).append("feed_loot")
+
+    # Записываем обязательные поля, которые не нашлись
+    if missing_required:
+        result["_missing_required"] = missing_required
+
+    # Метаданные для аудита дельт
+    result["_command"] = "Покормить жабу"
+    result["_raw_text"] = text_clean[:2000]
 
     return result if result else None
 
@@ -883,6 +902,146 @@ def parse_family(text: str, current_account_name: str = "") -> Optional[Dict[str
     return result
 
 
+def clean_member_name(name_str: str) -> str:
+    """
+    Очищает имя участника от начального смайлика класса, пробелов и хвостовых смайликов/статусов.
+    Например: '🧙 Петр I 🔑' -> 'Петр I'
+    """
+    if not name_str:
+        return ""
+    s = name_str.strip()
+    # Удаляем начальный смайлик и пробелы после него
+    s = re.sub(r'^[^\w\sа-яА-ЯёЁ]+\s*', '', s)
+    # Удаляем скобки с количеством карт в конце: '[2 🗺]'
+    s = re.sub(r'\s*\[[^\]]+\]\s*$', '', s)
+    # Удаляем хвостовые смайлики/символы вроде 👑, 🔑
+    s = re.sub(r'\s*[^\w\sа-яА-ЯёЁ]+$', '', s)
+    return s.strip()
+
+
+def parse_clan(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Разбирает ответ команды «Мой клан» и возвращает словарь со спарсенными полями.
+    """
+    text_clean = text.replace("\r", "")
+    lines = [line.strip() for line in text_clean.split("\n")]
+    
+    # Проверка, что это действительно профиль клана
+    if not lines or not re.match(r"^Клан\s+", lines[0], re.IGNORECASE):
+        return None
+        
+    result: Dict[str, Any] = {}
+    
+    # 1. Название клана (clan_name)
+    name_match = re.match(r"^Клан\s+(.*?):", lines[0], re.IGNORECASE)
+    if name_match:
+        result['clan_name'] = name_match.group(1).strip()
+    else:
+        result['clan_name'] = re.sub(r"^Клан\s+", "", lines[0], flags=re.IGNORECASE).strip()
+        
+    # 2. Состав клана (clan_members)
+    # Состав идет сразу после первой строки до пустой строки
+    members = []
+    for line in lines[1:]:
+        if not line:
+            break
+        # Сохраняем имя со всеми смайликами и символами как в ответе Жабабота
+        members.append(line)
+        
+    if members:
+        result['clan_members'] = "\n".join(members)
+    else:
+        result['clan_members'] = "-"
+
+    # 3. Уровень (clan_level)
+    level_match = re.search(r'⭐(?:️)?\s*Уровень:\s*(\d+)', text_clean, re.IGNORECASE)
+    if level_match:
+        result['clan_level'] = int(level_match.group(1))
+        
+    # 4. Опыт (clan_exp)
+    exp_match = re.search(r'⏳\s*Опыт вашего клана:\s*(\S+)', text_clean, re.IGNORECASE)
+    if exp_match:
+        result['clan_exp'] = exp_match.group(1).strip()
+        
+    # 5. Карт (clan_cards)
+    cards_match = re.search(r'🗺\s*Общее количество карт:\s*([^\n]+)', text_clean, re.IGNORECASE)
+    if cards_match:
+        result['clan_cards'] = cards_match.group(1).strip()
+        
+    # 6. Бонус на доп. карту (clan_bonus)
+    bonus_match = re.search(r'❇️\s*(?:\[[^\]]+\]|[^:]+)\s*:\s*([^\n]+)', text_clean, re.IGNORECASE)
+    if bonus_match:
+        result['clan_bonus'] = bonus_match.group(1).strip()
+    else:
+        result['clan_bonus'] = '-'
+        
+    # 7. Лига (clan_league)
+    league_match = re.search(r'⚔️\s*Лига:\s*([а-яА-ЯёЁ]+)', text_clean, re.IGNORECASE)
+    if league_match:
+        result['clan_league'] = league_match.group(1).strip()
+        
+    # 8. Сражений за сезон (clan_battles)
+    battles_match = re.search(r'🧮\s*Сражений за сезон:\s*(\d+)', text_clean, re.IGNORECASE)
+    if battles_match:
+        result['clan_battles'] = int(battles_match.group(1))
+        
+    # 9. Очков (clan_points)
+    points_match = re.search(r'🏆\s*Клановых очков:\s*(\d+)', text_clean, re.IGNORECASE)
+    if points_match:
+        result['clan_points'] = int(points_match.group(1))
+        
+    # 10. Усилитель (clan_booster)
+    booster_match = re.search(r'🚀\s*Усилитель:\s*([^\n]+)', text_clean, re.IGNORECASE)
+    if booster_match:
+        booster_val = booster_match.group(1).strip()
+        if "Пусто" in booster_val:
+            result['clan_booster'] = '-'
+        else:
+            result['clan_booster'] = booster_val
+    else:
+        result['clan_booster'] = '-'
+        
+    # 11. За картой / Поход (clan_offmap)
+    cooldown_match = re.search(r'(?:Отправиться|Пойти)\s+за\s+картой\s+можно\s+через\s+(?:(\d+)\s*(?:ч|ч\.|ч:|час|часа|часов)\s*)?(\d+)\s*(?:мин|минут)', text_clean, re.IGNORECASE)
+    if cooldown_match:
+        hours = cooldown_match.group(1)
+        minutes = cooldown_match.group(2)
+        if hours:
+            result['clan_offmap'] = f"Через {hours} ч. {minutes} мин."
+        else:
+            result['clan_offmap'] = f"Через {minutes} мин."
+    else:
+        result['clan_offmap'] = "Можно"
+
+    # 12. Клановые войны (clan_war)
+    war_match = re.search(r'Клановые войны начнутся через\s*([^\n]+)', text_clean, re.IGNORECASE)
+    if war_match:
+        result['clan_war'] = war_match.group(1).strip()
+    else:
+        result['clan_war'] = '-'
+
+    # 13. Ачивки (clan_achievements)
+    achievements = []
+    achievements_started = False
+    for line in lines:
+        if line.lower().startswith("ачивки:"):
+            achievements_started = True
+            continue
+        if achievements_started:
+            ach_line = line.strip()
+            if ach_line:
+                achievements.append(ach_line)
+            else:
+                break
+                
+    if achievements:
+        result['clan_achievements'] = "\n".join(achievements)
+    else:
+        result['clan_achievements'] = "-"
+            
+    return result if result else None
+
+
 def parse_gang(text: str) -> Optional[Dict[str, Any]]:
     """
     Разбирает ответ на команду "Моя банда".
@@ -971,5 +1130,4 @@ def parse_gang(text: str) -> Optional[Dict[str, Any]]:
             result["gang_party"] = party_match.group(1).strip()
 
     return result
-
 

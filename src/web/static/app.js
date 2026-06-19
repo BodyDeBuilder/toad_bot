@@ -192,6 +192,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnMonitorToggleMode) {
             btnMonitorToggleMode.addEventListener('click', handleToggleMonitor);
         }
+        const btnClearDeltaAudit = document.getElementById('btn-clear-delta-audit');
+        if (btnClearDeltaAudit) {
+            btnClearDeltaAudit.addEventListener('click', async () => {
+                if (!confirm('Очистить весь журнал аудита дельт?')) return;
+                try {
+                    const res = await fetch('/api/monitor/delta-audit', { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast('Журнал аудита дельт очищен', 'success');
+                        await fetchAndRenderDeltaAudit();
+                    } else {
+                        const err = await res.json();
+                        showToast('Ошибка: ' + formatError(err), 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('❌ Ошибка сети', 'error');
+                }
+            });
+        }
         if (btnMonitorClearLogs) {
             btnMonitorClearLogs.addEventListener('click', async () => {
                 if (!confirm('Вы действительно хотите полностью очистить логи мониторинга и удалить файл отчета Excel?')) {
@@ -213,15 +232,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
-        // Вкладки мониторинга / распознавания / отладки / теста
+        // Вкладки мониторинга / распознавания / отладки / теста / аудит дельт
         const btnTabMonitor = document.getElementById('btn-tab-monitor');
         const btnTabRecognition = document.getElementById('btn-tab-recognition');
         const btnTabDebug = document.getElementById('btn-tab-debug');
         const btnTabTest = document.getElementById('btn-tab-test');
+        const btnTabDeltaAudit = document.getElementById('btn-tab-delta-audit');
         const panelMonitorTab = document.getElementById('panel-monitor-tab');
         const panelRecognitionTab = document.getElementById('panel-recognition-tab');
         const panelDebugTab = document.getElementById('panel-debug-tab');
         const panelTestTab = document.getElementById('panel-test-tab');
+        const panelDeltaAuditTab = document.getElementById('panel-delta-audit-tab');
         const monitorActionsHeader = document.getElementById('monitor-actions-header');
         const recognitionActionsHeader = document.getElementById('recognition-actions-header');
 
@@ -231,15 +252,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (btnTabRecognition) btnTabRecognition.classList.remove('active');
                 if (btnTabDebug) btnTabDebug.classList.remove('active');
                 if (btnTabTest) btnTabTest.classList.remove('active');
+                if (btnTabDeltaAudit) btnTabDeltaAudit.classList.remove('active');
                 btnTabMonitor.style.color = 'var(--color-text-main)';
                 if (btnTabRecognition) btnTabRecognition.style.color = 'var(--color-text-muted)';
                 if (btnTabDebug) btnTabDebug.style.color = 'var(--color-text-muted)';
                 if (btnTabTest) btnTabTest.style.color = 'var(--color-text-muted)';
+                if (btnTabDeltaAudit) btnTabDeltaAudit.style.color = 'var(--color-text-muted)';
 
                 if (panelMonitorTab) panelMonitorTab.classList.remove('hidden');
                 if (panelRecognitionTab) panelRecognitionTab.classList.add('hidden');
                 if (panelDebugTab) panelDebugTab.classList.add('hidden');
                 if (panelTestTab) panelTestTab.classList.add('hidden');
+                if (panelDeltaAuditTab) panelDeltaAuditTab.classList.add('hidden');
                 if (monitorActionsHeader) monitorActionsHeader.classList.remove('hidden');
                 if (recognitionActionsHeader) recognitionActionsHeader.classList.add('hidden');
 
@@ -253,15 +277,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (btnTabMonitor) btnTabMonitor.classList.remove('active');
                 if (btnTabDebug) btnTabDebug.classList.remove('active');
                 if (btnTabTest) btnTabTest.classList.remove('active');
+                if (btnTabDeltaAudit) btnTabDeltaAudit.classList.remove('active');
                 btnTabRecognition.style.color = 'var(--color-text-main)';
                 if (btnTabMonitor) btnTabMonitor.style.color = 'var(--color-text-muted)';
                 if (btnTabDebug) btnTabDebug.style.color = 'var(--color-text-muted)';
                 if (btnTabTest) btnTabTest.style.color = 'var(--color-text-muted)';
+                if (btnTabDeltaAudit) btnTabDeltaAudit.style.color = 'var(--color-text-muted)';
 
                 if (panelMonitorTab) panelMonitorTab.classList.add('hidden');
                 if (panelRecognitionTab) panelRecognitionTab.classList.remove('hidden');
                 if (panelDebugTab) panelDebugTab.classList.add('hidden');
                 if (panelTestTab) panelTestTab.classList.add('hidden');
+                if (panelDeltaAuditTab) panelDeltaAuditTab.classList.add('hidden');
                 if (monitorActionsHeader) monitorActionsHeader.classList.add('hidden');
                 if (recognitionActionsHeader) recognitionActionsHeader.classList.remove('hidden');
 
@@ -275,15 +302,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (btnTabMonitor) btnTabMonitor.classList.remove('active');
                 if (btnTabRecognition) btnTabRecognition.classList.remove('active');
                 if (btnTabTest) btnTabTest.classList.remove('active');
+                if (btnTabDeltaAudit) btnTabDeltaAudit.classList.remove('active');
                 btnTabDebug.style.color = 'var(--color-text-main)';
                 if (btnTabMonitor) btnTabMonitor.style.color = 'var(--color-text-muted)';
                 if (btnTabRecognition) btnTabRecognition.style.color = 'var(--color-text-muted)';
                 if (btnTabTest) btnTabTest.style.color = 'var(--color-text-muted)';
+                if (btnTabDeltaAudit) btnTabDeltaAudit.style.color = 'var(--color-text-muted)';
 
                 if (panelMonitorTab) panelMonitorTab.classList.add('hidden');
                 if (panelRecognitionTab) panelRecognitionTab.classList.add('hidden');
                 if (panelDebugTab) panelDebugTab.classList.remove('hidden');
                 if (panelTestTab) panelTestTab.classList.add('hidden');
+                if (panelDeltaAuditTab) panelDeltaAuditTab.classList.add('hidden');
                 if (monitorActionsHeader) monitorActionsHeader.classList.add('hidden');
                 if (recognitionActionsHeader) recognitionActionsHeader.classList.add('hidden');
 
@@ -297,19 +327,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (btnTabMonitor) btnTabMonitor.classList.remove('active');
                 if (btnTabRecognition) btnTabRecognition.classList.remove('active');
                 if (btnTabDebug) btnTabDebug.classList.remove('active');
+                if (btnTabDeltaAudit) btnTabDeltaAudit.classList.remove('active');
                 btnTabTest.style.color = 'var(--color-text-main)';
                 if (btnTabMonitor) btnTabMonitor.style.color = 'var(--color-text-muted)';
                 if (btnTabRecognition) btnTabRecognition.style.color = 'var(--color-text-muted)';
                 if (btnTabDebug) btnTabDebug.style.color = 'var(--color-text-muted)';
+                if (btnTabDeltaAudit) btnTabDeltaAudit.style.color = 'var(--color-text-muted)';
 
                 if (panelMonitorTab) panelMonitorTab.classList.add('hidden');
                 if (panelRecognitionTab) panelRecognitionTab.classList.add('hidden');
                 if (panelDebugTab) panelDebugTab.classList.add('hidden');
                 if (panelTestTab) panelTestTab.classList.remove('hidden');
+                if (panelDeltaAuditTab) panelDeltaAuditTab.classList.add('hidden');
                 if (monitorActionsHeader) monitorActionsHeader.classList.add('hidden');
                 if (recognitionActionsHeader) recognitionActionsHeader.classList.add('hidden');
 
                 initTestTab();
+            });
+        }
+
+        if (btnTabDeltaAudit) {
+            btnTabDeltaAudit.addEventListener('click', () => {
+                btnTabDeltaAudit.classList.add('active');
+                if (btnTabMonitor) btnTabMonitor.classList.remove('active');
+                if (btnTabRecognition) btnTabRecognition.classList.remove('active');
+                if (btnTabDebug) btnTabDebug.classList.remove('active');
+                if (btnTabTest) btnTabTest.classList.remove('active');
+                btnTabDeltaAudit.style.color = 'var(--color-text-main)';
+                if (btnTabMonitor) btnTabMonitor.style.color = 'var(--color-text-muted)';
+                if (btnTabRecognition) btnTabRecognition.style.color = 'var(--color-text-muted)';
+                if (btnTabDebug) btnTabDebug.style.color = 'var(--color-text-muted)';
+                if (btnTabTest) btnTabTest.style.color = 'var(--color-text-muted)';
+
+                if (panelMonitorTab) panelMonitorTab.classList.add('hidden');
+                if (panelRecognitionTab) panelRecognitionTab.classList.add('hidden');
+                if (panelDebugTab) panelDebugTab.classList.add('hidden');
+                if (panelTestTab) panelTestTab.classList.add('hidden');
+                if (panelDeltaAuditTab) panelDeltaAuditTab.classList.remove('hidden');
+                if (monitorActionsHeader) monitorActionsHeader.classList.add('hidden');
+                if (recognitionActionsHeader) recognitionActionsHeader.classList.add('hidden');
+
+                fetchAndRenderDeltaAudit();
             });
         }
 
@@ -923,27 +981,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnTabRecognition = document.getElementById('btn-tab-recognition');
         const btnTabDebug = document.getElementById('btn-tab-debug');
         const btnTabTest = document.getElementById('btn-tab-test');
+        const btnTabDeltaAudit = document.getElementById('btn-tab-delta-audit');
         const panelMonitorTab = document.getElementById('panel-monitor-tab');
         const panelRecognitionTab = document.getElementById('panel-recognition-tab');
         const panelDebugTab = document.getElementById('panel-debug-tab');
         const panelTestTab = document.getElementById('panel-test-tab');
+        const panelDeltaAuditTab = document.getElementById('panel-delta-audit-tab');
         const monitorActionsHeader = document.getElementById('monitor-actions-header');
         const recognitionActionsHeader = document.getElementById('recognition-actions-header');
         
-        if (btnTabMonitor && btnTabRecognition && btnTabDebug && btnTabTest) {
+        if (btnTabMonitor && btnTabRecognition && btnTabDebug && btnTabTest && btnTabDeltaAudit) {
             btnTabMonitor.classList.add('active');
             btnTabRecognition.classList.remove('active');
             btnTabDebug.classList.remove('active');
             btnTabTest.classList.remove('active');
+            btnTabDeltaAudit.classList.remove('active');
             btnTabMonitor.style.color = 'var(--color-text-main)';
             btnTabRecognition.style.color = 'var(--color-text-muted)';
             btnTabDebug.style.color = 'var(--color-text-muted)';
             btnTabTest.style.color = 'var(--color-text-muted)';
+            btnTabDeltaAudit.style.color = 'var(--color-text-muted)';
         }
         if (panelMonitorTab) panelMonitorTab.classList.remove('hidden');
         if (panelRecognitionTab) panelRecognitionTab.classList.add('hidden');
         if (panelDebugTab) panelDebugTab.classList.add('hidden');
         if (panelTestTab) panelTestTab.classList.add('hidden');
+        if (panelDeltaAuditTab) panelDeltaAuditTab.classList.add('hidden');
         if (monitorActionsHeader) monitorActionsHeader.classList.remove('hidden');
         if (recognitionActionsHeader) recognitionActionsHeader.classList.add('hidden');
 
@@ -1187,16 +1250,31 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let html = '';
             recCommands.forEach(cmd => {
+                const parserType = cmd.parser_type || 'control';
+                const ptLabels = { control: 'контроль', simple: 'простой', additive: 'добавочный' };
+                const ptColors = { control: '#7c4dff', simple: '#00bfa5', additive: '#ff9100' };
+                const ptBgColors = { control: 'rgba(124,77,255,0.15)', simple: 'rgba(0,191,165,0.15)', additive: 'rgba(255,145,0,0.15)' };
+                const ptLabel = ptLabels[parserType] || parserType;
+                const ptColor = ptColors[parserType] || '#888';
+                const ptBg = ptBgColors[parserType] || 'rgba(136,136,136,0.15)';
+
                 html += `
                     <div class="recognition-command-row" style="background: rgba(42, 27, 61, 0.2); border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden; margin-bottom: 8px;" data-cmd-id="${cmd.id}">
                         <div class="recognition-command-header" style="padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span class="rec-expand-icon" style="transition: transform 0.2s; display: inline-block;">▶</span>
                                 <span style="font-weight: 600; color: var(--color-primary-hover); font-size: 14px;">${escapeHtml(cmd.command)}</span>
+                                <span style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; color: ${ptColor}; background: ${ptBg}; border: 1px solid ${ptColor}33; text-transform: uppercase; letter-spacing: 0.5px;" title="Тип парсера: ${ptLabel}">${ptLabel}</span>
                             </div>
                             <button class="btn danger small delete-recognition-cmd-btn" data-id="${cmd.id}" style="padding: 4px 10px; font-size: 11px; margin: 0; background-color: var(--color-danger); border-color: var(--color-danger); color: #fff; cursor: pointer; border-radius: 6px;">
                                 Удалить из распознавания
                             </button>
+                        </div>
+                        <div class="cmd-description-row" data-cmd-id="${cmd.id}" style="padding: 0 16px; cursor: default; ${cmd.description ? '' : 'display: none;'}">
+                            <div style="padding: 6px 0 8px 28px; font-size: 12px; color: var(--color-text-muted); line-height: 1.4;">
+                                <span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(cmd.description)}</span>
+                                <span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>
+                            </div>
                         </div>
                         <div class="recognition-subcommands-container hidden" style="padding: 0 16px 16px 16px; border-top: 1px solid var(--border-glass); background: rgba(0, 0, 0, 0.15);" id="subcommands-container-${cmd.id}">
                         </div>
@@ -1249,6 +1327,65 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.error(err);
                         showToast('❌ Ошибка сети', 'error');
                     }
+                });
+            });
+
+            // Inline-редактирование описания команды
+            container.querySelectorAll('.cmd-description-row').forEach(descRow => {
+                descRow.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const cmdId = descRow.getAttribute('data-cmd-id');
+                    const textEl = descRow.querySelector('.cmd-description-text');
+                    const hintEl = descRow.querySelector('.cmd-description-edit-hint');
+                    const currentText = textEl.textContent.trim();
+
+                    // Создаём input для редактирования
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = currentText;
+                    input.placeholder = 'Описание назначения команды (до 500 символов)...';
+                    input.maxLength = 500;
+                    input.style.cssText = 'width: 100%; background: var(--bg-input); border: 1px solid var(--color-primary); border-radius: 6px; color: var(--color-text-main); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box;';
+
+                    const parentDiv = textEl.parentElement;
+                    parentDiv.innerHTML = '';
+                    parentDiv.appendChild(input);
+                    input.focus();
+                    input.select();
+
+                    const save = async () => {
+                        const newDesc = input.value.trim();
+                        try {
+                            const res = await fetch(`/api/monitor/commands/${cmdId}/description`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ description: newDesc })
+                            });
+                            if (res.ok) {
+                                if (newDesc) {
+                                    parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                                    descRow.style.display = '';
+                                } else {
+                                    parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                                    descRow.style.display = 'none';
+                                }
+                            } else {
+                                const err = await res.json();
+                                showToast('Ошибка: ' + formatError(err), 'error');
+                                parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            showToast('❌ Ошибка сети', 'error');
+                            parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                        }
+                    };
+
+                    input.addEventListener('blur', save);
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                        if (e.key === 'Escape') { input.value = currentText; input.blur(); }
+                    });
                 });
             });
             
@@ -1600,6 +1737,96 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = `
                 <div class="warning-text" style="padding: 24px; text-align: center;">
                     <strong>Ошибка:</strong> ${escapeHtml(err.message || 'Не удалось загрузить список')}
+                </div>
+            `;
+        }
+    }
+
+    async function fetchAndRenderDeltaAudit() {
+        const container = document.getElementById('delta-audit-table-container');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="loading-placeholder">
+                <div class="spinner"></div>
+                <p>Загрузка аудита дельт...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch('/api/monitor/delta-audit?limit=200');
+            if (!response.ok) throw new Error('Не удалось загрузить аудит дельт');
+            const data = await response.json();
+            const rows = data.rows || [];
+
+            if (rows.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">
+                        Журнал пуст. Инкременты и предупреждения о ненаходе появятся здесь после срабатывания additive-парсеров.
+                    </div>
+                `;
+                return;
+            }
+
+            const evLabels = {
+                delta: { text: 'дельта', color: '#ff9100', bg: 'rgba(255,145,0,0.15)' },
+                missing_required: { text: 'ненаход', color: '#f44336', bg: 'rgba(244,67,54,0.15)' },
+                optional_null: { text: 'прочерк', color: '#90a4ae', bg: 'rgba(144,164,174,0.15)' }
+            };
+
+            let html = `
+                <table class="monitor-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="width: 130px; text-align: left;">Время</th>
+                            <th style="width: 110px; text-align: center;">VK ID</th>
+                            <th style="width: 120px; text-align: left;">Команда</th>
+                            <th style="width: 100px; text-align: center;">Событие</th>
+                            <th style="width: 140px; text-align: left;">Поле</th>
+                            <th style="text-align: left;">Значение</th>
+                            <th style="width: 250px; text-align: left;">Текст</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            rows.forEach(r => {
+                const ev = evLabels[r.event_type] || { text: r.event_type, color: '#888', bg: 'rgba(136,136,136,0.15)' };
+                let valueCell = '—';
+                if (r.event_type === 'delta') {
+                    const dv = r.delta_value != null ? (parseFloat(r.delta_value) > 0 ? '+' : '') + r.delta_value : '';
+                    const oldV = r.old_value != null ? r.old_value : 'NULL';
+                    const newV = r.new_value != null ? r.new_value : 'NULL';
+                    valueCell = `<span style="color: ${ev.color}; font-weight: 600;">${escapeHtml(dv)}</span> <span style="color: var(--color-text-muted); font-size: 11px;">(${escapeHtml(oldV)} → ${escapeHtml(newV)})</span>`;
+                } else if (r.event_type === 'missing_required') {
+                    valueCell = `<span style="color: ${ev.color};">оставлено старое</span>`;
+                } else if (r.event_type === 'optional_null') {
+                    valueCell = `<span style="color: ${ev.color};">→ NULL (прочерк)</span>`;
+                }
+
+                const rawPreview = r.raw_text ? (r.raw_text.length > 120 ? r.raw_text.substring(0, 120) + '…' : r.raw_text) : '';
+                html += `
+                    <tr>
+                        <td style="font-size: 11px; color: var(--color-text-muted);">${escapeHtml(r.created_at || '')}</td>
+                        <td style="text-align: center; font-size: 11px;">${escapeHtml(String(r.vk_id))}</td>
+                        <td style="font-size: 12px;">${escapeHtml(r.command || '')}</td>
+                        <td style="text-align: center;">
+                            <span style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; color: ${ev.color}; background: ${ev.bg}; border: 1px solid ${ev.color}33;">${ev.text}</span>
+                        </td>
+                        <td style="font-size: 12px; font-family: monospace;">${escapeHtml(r.field_name || '')}</td>
+                        <td style="font-size: 12px;">${valueCell}</td>
+                        <td style="font-size: 11px; color: var(--color-text-muted);">${escapeHtml(rawPreview)}</td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        } catch (err) {
+            console.error(err);
+            container.innerHTML = `
+                <div class="warning-text" style="padding: 24px; text-align: center;">
+                    <strong>Ошибка:</strong> ${escapeHtml(err.message || 'Не удалось загрузить аудит дельт')}
                 </div>
             `;
         }
@@ -1969,7 +2196,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         clan_league: "Сводные",
                         clan_battles: state.accounts.reduce((sum, a) => sum + (a.clan_battles || 0), 0),
                         clan_points: state.accounts.reduce((sum, a) => sum + (a.clan_points || 0), 0),
-                        clan_booster: "Сводные"
+                        clan_booster: "Сводные",
+                        clan_war: "Сводные",
+                        clan_achievements: "Сводные"
                     };
                 } else {
                     acc = state.accounts.find(a => a.vk_id === state.selectedAccountId);
@@ -2360,12 +2589,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 clan_members: "Сводные",
                 clan_offmap: "Сводные",
                 clan_cards: "Сводные",
+                clan_bonus: "Сводные",
                 clan_exp: "Сводные",
                 clan_level: state.accounts.reduce((sum, a) => sum + (a.clan_level || 0), 0),
                 clan_league: "Сводные",
                 clan_battles: state.accounts.reduce((sum, a) => sum + (a.clan_battles || 0), 0),
                 clan_points: state.accounts.reduce((sum, a) => sum + (a.clan_points || 0), 0),
-                clan_booster: "Сводные"
+                clan_booster: "Сводные",
+                clan_war: "Сводные",
+                clan_achievements: "Сводные"
             };
         } else {
             acc = state.accounts.find(a => a.vk_id === state.selectedAccountId);
@@ -2582,21 +2814,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-label">Выполнен сегодня?</span>
                                                 <span class="stat-value" id="stat-row-daily-completed">Загрузка...</span>
                                             </div>
-                                            <div class="stat-row-vertical" id="stat-row-daily-tasks-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
-                                                <span class="stat-label" style="margin-bottom: 4px;">Задания</span>
-                                                <span class="stat-value" id="stat-row-daily-tasks" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-daily-tasks-wrapper">
+                                                <span class="stat-label">Задания</span>
+                                                <span class="stat-value" id="stat-row-daily-tasks">-</span>
                                             </div>
-                                            <div class="stat-row-vertical" id="stat-row-daily-reward-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
-                                                <span class="stat-label" style="margin-bottom: 4px;">Награда</span>
-                                                <span class="stat-value" id="stat-row-daily-reward" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-daily-reward-wrapper">
+                                                <span class="stat-label">Награда</span>
+                                                <span class="stat-value" id="stat-row-daily-reward">-</span>
                                             </div>
-                                            <div class="stat-row-vertical" id="stat-row-daily-bonus-tasks-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
-                                                <span class="stat-label" style="margin-bottom: 4px;">Доп. задания</span>
-                                                <span class="stat-value" id="stat-row-daily-bonus-tasks" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-daily-bonus-tasks-wrapper">
+                                                <span class="stat-label">Доп. задания</span>
+                                                <span class="stat-value" id="stat-row-daily-bonus-tasks">-</span>
                                             </div>
-                                            <div class="stat-row-vertical" id="stat-row-daily-bonus-reward-wrapper" style="display: flex; flex-direction: column; align-items: flex-start; padding: 4px 0; width: 100%;">
-                                                <span class="stat-label" style="margin-bottom: 4px;">Доп. награда</span>
-                                                <span class="stat-value" id="stat-row-daily-bonus-reward" style="text-align: left; white-space: pre-line; padding-left: 24px; width: 100%; box-sizing: border-box;">-</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-daily-bonus-reward-wrapper">
+                                                <span class="stat-label">Доп. награда</span>
+                                                <span class="stat-value" id="stat-row-daily-bonus-reward">-</span>
                                             </div>
                                         </div>
                                     </div>
@@ -2605,7 +2837,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <!-- Подвкладка: Семья -->
                             <div class="sub-tab-content ${state.activeSubTab === 'family' ? '' : 'hidden'}" id="sub-tab-family">
-                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 480px; margin: 0;">
+                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 320px; margin: 0;">
                                     <div class="stats-column-wrapper">
                                         <div class="column-timer" id="timer-column-family">
                                             <span class="dot"></span>
@@ -2711,7 +2943,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <!-- Подвкладка: Арена -->
                             <div class="sub-tab-content ${state.activeSubTab === 'arena' ? '' : 'hidden'}" id="sub-tab-arena">
-                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 480px; margin: 0;">
+                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 320px; margin: 0;">
                                     <div class="stats-column-wrapper">
                                         <div class="column-timer" id="timer-column-arena">
                                             <span class="dot"></span>
@@ -2746,7 +2978,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <!-- Подвкладка: Клан -->
                             <div class="sub-tab-content ${state.activeSubTab === 'clan' ? '' : 'hidden'}" id="sub-tab-clan">
-                                <div class="stats-columns-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 720px; margin: 0;">
+                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 320px; margin: 0;">
                                     <!-- Столбец 1: Клан -->
                                     <div class="stats-column-wrapper">
                                         <div class="column-timer" id="timer-column-clan">
@@ -2759,21 +2991,33 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-label">Название</span>
                                                 <span class="stat-value" id="stat-row-clan-name">Загрузка...</span>
                                             </div>
-                                            <div class="stat-row">
-                                                <span class="stat-label">За картой</span>
-                                                <span class="stat-value" id="stat-row-clan-offmap">Загрузка...</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-clan-members-wrapper">
+                                                <span class="stat-label">Состав</span>
+                                                <span class="stat-value" id="stat-row-clan-members">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
-                                                <span class="stat-label">Карт</span>
-                                                <span class="stat-value" id="stat-row-clan-cards">Загрузка...</span>
+                                                <span class="stat-label">Уровень</span>
+                                                <span class="stat-value" id="stat-row-clan-level">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
                                                 <span class="stat-label">Опыт</span>
                                                 <span class="stat-value" id="stat-row-clan-exp">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
-                                                <span class="stat-label">Уровень</span>
-                                                <span class="stat-value" id="stat-row-clan-level">Загрузка...</span>
+                                                <span class="stat-label">Карт</span>
+                                                <span class="stat-value" id="stat-row-clan-cards">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Бонус на доп. карту</span>
+                                                <span class="stat-value" id="stat-row-clan-bonus">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">За картой</span>
+                                                <span class="stat-value" id="stat-row-clan-offmap">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Клановые войны</span>
+                                                <span class="stat-value" id="stat-row-clan-war">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
                                                 <span class="stat-label">Лига</span>
@@ -2791,19 +3035,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="stat-label">Усилитель</span>
                                                 <span class="stat-value" id="stat-row-clan-booster">Загрузка...</span>
                                             </div>
-                                        </div>
-                                    </div>
-                                    <!-- Столбец 2: Состав -->
-                                    <div class="stats-column-wrapper">
-                                        <div class="column-timer" style="opacity: 0;">
-                                            <span class="dot"></span>
-                                            <span>Проверено: загрузка...</span>
-                                        </div>
-                                        <div class="stats-column">
-                                            <div class="stats-column-title">👥 Состав</div>
-                                            <div class="stat-row">
-                                                <span class="stat-label">Состав</span>
-                                                <span class="stat-value" id="stat-row-clan-members">Загрузка...</span>
+                                            <div class="stat-row stat-row-vertical" id="stat-row-clan-achievements-wrapper">
+                                                <span class="stat-label">Ачивки</span>
+                                                <span class="stat-value" id="stat-row-clan-achievements">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3265,6 +3499,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Быстрое и плавное обновление данных во вкладках без перезаписи innerHTML (без мерцания!)
     function updateDetailPanelData(acc) {
+        function cleanMemberName(line) {
+            let s = line.trim();
+            s = s.replace(/^[^\w\sа-яА-ЯёЁ]+\s*/, '');
+            s = s.replace(/\s*\[[^\]]+\]\s*$/, '');
+            s = s.replace(/\s*[^\w\sа-яА-ЯёЁ]+$/, '');
+            return s.trim();
+        }
+
         // 1. Агрегируем время последней проверки для общего аккаунта
         if (acc.vk_id === 0) {
             let maxLastChecked = null;
@@ -3333,6 +3575,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     dotFamily.classList.remove('offline');
                 } else {
                     dotFamily.classList.add('offline');
+                }
+            }
+        }
+
+        const timerGang = document.querySelector('#timer-column-gang span:last-child');
+        const dotGang = document.querySelector('#timer-column-gang .dot');
+        if (timerGang) {
+            const fullText = `Проверено: ${timeAgoText}`;
+            if (timerGang.textContent !== fullText) timerGang.textContent = fullText;
+            if (dotGang) {
+                if (acc.last_checked) {
+                    dotGang.classList.remove('offline');
+                } else {
+                    dotGang.classList.add('offline');
                 }
             }
         }
@@ -3501,6 +3757,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 setEqVal('stat-row-eq-defense', ts.eq_defense || '-');
             }
         }
+
+
 
         const rowDailyStatus = document.getElementById('stat-row-daily-status');
         if (rowDailyStatus) {
@@ -3778,8 +4036,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const rowClanMembers = document.getElementById('stat-row-clan-members');
         if (rowClanMembers) {
-            const val = acc.clan_members || '0';
-            if (rowClanMembers.textContent !== val) rowClanMembers.textContent = val;
+            const val = acc.clan_members || '-';
+            if (val === '-' || val === '0') {
+                if (rowClanMembers.textContent !== val) rowClanMembers.textContent = val;
+            } else {
+                const lines = val.split('\n');
+                const htmlLines = lines.map(line => {
+                    const cleanLine = line.trim();
+                    if (!cleanLine) return '';
+                    
+                    const coreName = cleanMemberName(cleanLine);
+                    const cleanAccName = cleanMemberName(acc.name || '');
+                    
+                    if (coreName.toLowerCase() === cleanAccName.toLowerCase() && cleanAccName.length > 0) {
+                        return `<div class="highlighted-clan-member">${line}</div>`;
+                    } else {
+                        return `<div class="clan-member-line">${line}</div>`;
+                    }
+                });
+                const nextHtml = htmlLines.filter(Boolean).join('');
+                if (rowClanMembers.innerHTML !== nextHtml) rowClanMembers.innerHTML = nextHtml;
+            }
         }
 
         const rowClanOffmap = document.getElementById('stat-row-clan-offmap');
@@ -3788,10 +4065,22 @@ document.addEventListener('DOMContentLoaded', () => {
             if (rowClanOffmap.textContent !== val) rowClanOffmap.textContent = val;
         }
 
+        const rowClanWar = document.getElementById('stat-row-clan-war');
+        if (rowClanWar) {
+            const val = acc.clan_war || '-';
+            if (rowClanWar.textContent !== val) rowClanWar.textContent = val;
+        }
+
         const rowClanCards = document.getElementById('stat-row-clan-cards');
         if (rowClanCards) {
             const val = acc.clan_cards || '0';
             if (rowClanCards.textContent !== val) rowClanCards.textContent = val;
+        }
+
+        const rowClanBonus = document.getElementById('stat-row-clan-bonus');
+        if (rowClanBonus) {
+            const val = acc.clan_bonus || '-';
+            if (rowClanBonus.textContent !== val) rowClanBonus.textContent = val;
         }
 
         const rowClanExp = document.getElementById('stat-row-clan-exp');
@@ -3841,8 +4130,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const rowClanBooster = document.getElementById('stat-row-clan-booster');
         if (rowClanBooster) {
-            const val = acc.vk_id === 0 ? (acc.clan_booster || 'Нет') : '-';
+            const val = acc.vk_id === 0 ? (acc.clan_booster || 'Нет') : (acc.clan_booster || '-');
             if (rowClanBooster.textContent !== val) rowClanBooster.textContent = val;
+        }
+
+        const rowClanAchievements = document.getElementById('stat-row-clan-achievements');
+        if (rowClanAchievements) {
+            const val = acc.clan_achievements || '-';
+            if (val === '-' || val === '0') {
+                if (rowClanAchievements.textContent !== val) rowClanAchievements.textContent = val;
+            } else {
+                const lines = val.split('\n');
+                const htmlLines = lines.map(line => {
+                    const cleanLine = line.trim();
+                    if (!cleanLine) return '';
+                    return `<div class="clan-achievement-line">${line}</div>`;
+                });
+                const nextHtml = htmlLines.filter(Boolean).join('');
+                if (rowClanAchievements.innerHTML !== nextHtml) rowClanAchievements.innerHTML = nextHtml;
+            }
         }
 
         // Обновляем таймеры последнего обновления для инвентаря

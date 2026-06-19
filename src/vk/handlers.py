@@ -14,6 +14,7 @@ from src.utils.toad_info_parser import (
     parse_equipment,
     parse_dailies,
     parse_family,
+    parse_clan,
     parse_gang,
     toad_state_to_account_fields,
 )
@@ -236,6 +237,8 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                                 await db.save_toad_state(vk_id, parsed_fields)
                         elif action_type == "excel_моя_семья":
                             parsed_fields = parse_family(text, acc.get("name", ""))
+                        elif action_type == "excel_мой_клан":
+                            parsed_fields = parse_clan(text)
                         elif action_type == "excel_моя_банда":
                             parsed_gang_data = parse_gang(text)
                             if parsed_gang_data:
@@ -249,11 +252,21 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                                 parsed_fields = {k: v for k, v in parsed_gang_data.items() if k in allowed_columns}
                         else:
                             # Стандартный парсинг из регулярного выражения Базы Знаний
-                            for col, rule in db_updates.items():
-                                if "{" in rule:
-                                    parsed_fields[col] = rule.format(**groups)
-                                else:
-                                    parsed_fields[col] = rule
+                            response_type = bot_match.get("response_type", "success")
+                            logger.info(f"[{vk_id}] match_bot_response: action_type={action_type}, response_type={response_type}")
+
+                            if response_type == "error":
+                                logger.warning(f"[{vk_id}] Бот вернул ошибку для '{action_type}': {text[:100]}")
+                                await db.log_action(vk_id, "warning",
+                                    f"Ошибка бота при '{action_type}': {text[:100]}")
+                            elif response_type == "cooldown":
+                                logger.info(f"[{vk_id}] КД при '{action_type}': {text[:80]}")
+                            else:
+                                for col, rule in db_updates.items():
+                                    if "{" in rule:
+                                        parsed_fields[col] = rule.format(**groups)
+                                    else:
+                                        parsed_fields[col] = rule
                                         
                         # Сохраняем спарсенные поля в базу данных
                         if parsed_fields:
