@@ -14,6 +14,7 @@ from src.utils.toad_info_parser import (
     parse_equipment,
     parse_dailies,
     parse_family,
+    parse_gang,
     toad_state_to_account_fields,
 )
 
@@ -235,6 +236,17 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
                                 await db.save_toad_state(vk_id, parsed_fields)
                         elif action_type == "excel_моя_семья":
                             parsed_fields = parse_family(text, acc.get("name", ""))
+                        elif action_type == "excel_моя_банда":
+                            parsed_gang_data = parse_gang(text)
+                            if parsed_gang_data:
+                                await db.save_toad_state(vk_id, parsed_gang_data)
+                                allowed_columns = {
+                                    "has_gang", "gang_type", "gang_name", 
+                                    "gang_loyalty_cur", "gang_loyalty_max", 
+                                    "gang_damage", "gang_chance", "gang_pendant", 
+                                    "gang_pendant_duration", "gang_party"
+                                }
+                                parsed_fields = {k: v for k, v in parsed_gang_data.items() if k in allowed_columns}
                         else:
                             # Стандартный парсинг из регулярного выражения Базы Знаний
                             for col, rule in db_updates.items():

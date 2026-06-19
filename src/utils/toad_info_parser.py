@@ -882,3 +882,94 @@ def parse_family(text: str, current_account_name: str = "") -> Optional[Dict[str
 
     return result
 
+
+def parse_gang(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Разбирает ответ на команду "Моя банда".
+    Возвращает dict с полями для toad_states и accounts или None, если текст не относится к команде.
+    """
+    text_clean = text.replace('\r', '').strip()
+
+    # Проверяем ключевые маркеры команды «Моя банда»
+    has_gang_active = "🏋️" in text_clean and "Банда:" in text_clean and "Верность:" in text_clean
+    has_no_gang = "У тебя нет банды" in text_clean or "Жабульки в инвентаре:" in text_clean
+
+    if not has_gang_active and not has_no_gang:
+        return None
+
+    result: dict = {
+        "has_gang": 0,
+        "gang_type": "-",
+        "gang_name": "-",
+        "gang_loyalty_cur": 0,
+        "gang_loyalty_max": 0,
+        "gang_damage": 0,
+        "gang_chance": 0,
+        "gang_pendant": "-",
+        "gang_pendant_duration": "-",
+        "gang_party": "-"
+    }
+
+    if has_no_gang:
+        # Извлекаем жабулек (например, "🐸 Жабульки в инвентаре: 3/10")
+        frogs_match = re.search(r"🐸\s*(?:Жабульки в инвентаре|Жабули для банды):\s*(\d+)", text_clean, re.IGNORECASE)
+        if frogs_match:
+            result["inv_gang_frogs"] = frogs_match.group(1).strip()
+        result["has_gang"] = 0
+        return result
+
+    # Если банда есть (Сценарий А)
+    result["has_gang"] = 1
+
+    # 1. Тип банды
+    type_match = re.search(r"🏋️\s*Банда:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if type_match:
+        result["gang_type"] = type_match.group(1).strip()
+
+    # 2. Название
+    name_match = re.search(r"🏷\s*Название:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if name_match:
+        result["gang_name"] = name_match.group(1).strip()
+
+    # 3. Верность
+    loyalty_match = re.search(r"🤝\s*Верность:\s*(\d+)/(\d+)", text_clean, re.IGNORECASE)
+    if loyalty_match:
+        result["gang_loyalty_cur"] = int(loyalty_match.group(1))
+        result["gang_loyalty_max"] = int(loyalty_match.group(2))
+
+    # 4. Урон
+    damage_match = re.search(r"⚔️\s*Урон:\s*(\d+)%", text_clean, re.IGNORECASE)
+    if damage_match:
+        result["gang_damage"] = int(damage_match.group(1))
+
+    # 5. Шанс срабатывания
+    chance_match = re.search(r"🎯\s*Шанс срабатывания:\s*(\d+)%", text_clean, re.IGNORECASE)
+    if chance_match:
+        result["gang_chance"] = int(chance_match.group(1))
+
+    # 6. Кулон
+    pendant_match = re.search(r"📿\s*Кулон:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if pendant_match:
+        result["gang_pendant"] = pendant_match.group(1).strip()
+
+    # 7. Время кулона (опционально)
+    duration_match = re.search(r"🕒\s*Время действия:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if duration_match:
+        result["gang_pendant_duration"] = duration_match.group(1).strip()
+    else:
+        result["gang_pendant_duration"] = "-"
+
+    # 8. Брать на тусу
+    party_match = re.search(r"(?:💃🏻|💃)\s*Брать на тусу:\s*([^\n\r]+)", text_clean, re.IGNORECASE)
+    if party_match:
+        val = party_match.group(1).strip().lower()
+        if "да" in val or "✅" in val:
+            result["gang_party"] = "Да"
+        elif "нет" in val or "❌" in val:
+            result["gang_party"] = "Нет"
+        else:
+            result["gang_party"] = party_match.group(1).strip()
+
+    return result
+
+

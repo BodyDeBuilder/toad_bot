@@ -92,6 +92,16 @@ class DBManager:
                     clan_battles INTEGER DEFAULT 0,
                     clan_points INTEGER DEFAULT 0,
                     clan_booster TEXT DEFAULT 'Нет',
+                    has_gang INTEGER DEFAULT 0,
+                    gang_type TEXT DEFAULT '-',
+                    gang_name TEXT DEFAULT '-',
+                    gang_loyalty_cur INTEGER DEFAULT 0,
+                    gang_loyalty_max INTEGER DEFAULT 0,
+                    gang_damage INTEGER DEFAULT 0,
+                    gang_chance INTEGER DEFAULT 0,
+                    gang_pendant TEXT DEFAULT '-',
+                    gang_pendant_duration TEXT DEFAULT '-',
+                    gang_party TEXT DEFAULT '-',
                     proxy_host TEXT,
                     proxy_port INTEGER,
                     proxy_user TEXT,
@@ -139,6 +149,16 @@ class DBManager:
                 "clan_battles": "INTEGER DEFAULT 0",
                 "clan_points": "INTEGER DEFAULT 0",
                 "clan_booster": "TEXT DEFAULT 'Нет'",
+                "has_gang": "INTEGER DEFAULT 0",
+                "gang_type": "TEXT DEFAULT '-'",
+                "gang_name": "TEXT DEFAULT '-'",
+                "gang_loyalty_cur": "INTEGER DEFAULT 0",
+                "gang_loyalty_max": "INTEGER DEFAULT 0",
+                "gang_damage": "INTEGER DEFAULT 0",
+                "gang_chance": "INTEGER DEFAULT 0",
+                "gang_pendant": "TEXT DEFAULT '-'",
+                "gang_pendant_duration": "TEXT DEFAULT '-'",
+                "gang_party": "TEXT DEFAULT '-'",
                 "dungeon_info": "TEXT DEFAULT 'Неизвестно'",
                 "arena_info": "TEXT DEFAULT 'Неизвестно'",
                 "party_info": "TEXT DEFAULT 'Неизвестно'",
@@ -346,13 +366,13 @@ class DBManager:
             """)
             await conn.commit()
 
-            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья")
-            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья"):
+            # Посев дефолтных отслеживаемых команд ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья", "Моя банда")
+            for cmd_name in ("Моя жаба", "Работа", "Жаба инфо", "Мой инвентарь", "Мое снаряжение", "Покормить жабу", "Дейлики", "Моя семья", "Моя банда"):
                 await conn.execute(
                     "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
                 )
-            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо», «Мой инвентарь», «Мое снаряжение», «Покормить жабу», «Дейлики» и «Моя семья»
-            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья')")
+            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо», «Мой инвентарь», «Мое снаряжение», «Покормить жабу», «Дейлики», «Моя семья» и «Моя банда»
+            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья', 'Моя банда')")
             await conn.commit()
 
             # Обеспечиваем наличие команды 'inventory' в commands_registry
@@ -385,7 +405,7 @@ class DBManager:
 
 
             # Посев тестовых правил распознавания
-            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья')") as cursor:
+            async with conn.execute("SELECT id, command FROM monitored_commands WHERE command IN ('Моя жаба', 'Работа', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья', 'Моя банда')") as cursor:
                 cmd_rows = await cursor.fetchall()
                 cmd_ids = {row["command"]: row["id"] for row in cmd_rows}
 
@@ -914,6 +934,31 @@ class DBManager:
                                 VALUES (?, ?, ?, ?)
                             """, (sub_id, pattern, output_val, var_name))
 
+            if "Моя банда" in cmd_ids:
+                cmd_id = cmd_ids["Моя банда"]
+                async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (cmd_id,)) as cursor:
+                    cnt_row = await cursor.fetchone()
+                    if cnt_row and cnt_row["cnt"] == 0:
+                        rules_data = [
+                            ("Тип банды", r"🏋️\s*Банда:\s*(?P<gang_type>[^\n]+)", "Тип банды = {gang_type}", "gang_type"),
+                            ("Название банды", r"🏷\s*Название:\s*(?P<gang_name>[^\n]+)", "Название = {gang_name}", "gang_name"),
+                            ("Верность банды", r"🤝\s*Верность:\s*(?P<gang_loyalty_cur>\d+)(?:/\d+)?", "Верность = {gang_loyalty_cur}", "gang_loyalty_cur"),
+                            ("Урон банды", r"⚔️\s*Урон:\s*(?P<gang_damage>\d+)%", "Урон = {gang_damage}%", "gang_damage"),
+                            ("Шанс срабатывания", r"🎯\s*Шанс срабатывания:\s*(?P<gang_chance>\d+)%", "Шанс = {gang_chance}%", "gang_chance"),
+                            ("Кулон", r"📿\s*Кулон:\s*(?P<gang_pendant>[^\n]+)", "Кулон = {gang_pendant}", "gang_pendant"),
+                            ("Время кулона", r"🕒\s*Время действия:\s*(?P<gang_pendant_duration>[^\n]+)", "Время кулона = {gang_pendant_duration}", "gang_pendant_duration"),
+                            ("Брать на тусу", r"(?:💃🏻|💃)\s*Брать на тусу:\s*(?P<gang_party>[^\n]+)", "Брать на тусу = {gang_party}", "gang_party")
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+
             await conn.commit()
             
         # Посев дефолтных правил, если таблицы пусты или не все команды на месте
@@ -971,6 +1016,15 @@ class DBManager:
                         VALUES ('excel_моя_семья', 'Разбор семьи', 'success', '💖[\\s\\S]*?и[\\s\\S]*?:', '{}')
                     """)
             
+            # 3.5. Миграция для "Моя банда"
+            await conn.execute("UPDATE commands_registry SET trigger_regex = '^моя\\s+банда$' WHERE action_type = 'excel_моя_банда'")
+            async with conn.execute("SELECT 1 FROM response_templates WHERE action_type = 'excel_моя_банда'") as cursor_tpl:
+                if not await cursor_tpl.fetchone():
+                    await conn.execute("""
+                        INSERT INTO response_templates (action_type, pattern_name, response_type, regex, db_updates)
+                        VALUES ('excel_моя_банда', 'Разбор банды', 'success', '🏋️\\s*Банда:|У\\s+тебя\\s+нет\\s+банды|Жабульки\\s+в\\s+инвентаре:', '{}')
+                    """)
+            
             # 4. Добавление подкоманд и правил для "Моя семья" (на случай если база уже создана)
             async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Моя семья'") as cursor_fam:
                 fam_row = await cursor_fam.fetchone()
@@ -1003,6 +1057,36 @@ class DBManager:
                                 VALUES (?, ?, ?, ?)
                             """, (sub_id, pattern, output_val, var_name))
                         logger.info("Миграция: Добавлены правила распознавания для 'Моя семья'.")
+
+            # 4.5. Добавление подкоманд и правил для "Моя банда" (на случай если база уже создана)
+            async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Моя банда'") as cursor_gang:
+                gang_row = await cursor_gang.fetchone()
+                if gang_row:
+                    gang_cmd_id = gang_row["id"]
+                    async with conn.execute("SELECT COUNT(*) as cnt FROM recognition_subcommands WHERE command_id = ?", (gang_cmd_id,)) as sub_cursor:
+                        gang_sub_cnt = (await sub_cursor.fetchone())["cnt"]
+                    
+                    if gang_sub_cnt == 0:
+                        rules_data = [
+                            ("Тип банды", r"🏋️\s*Банда:\s*(?P<gang_type>[^\n]+)", "Тип банды = {gang_type}", "gang_type"),
+                            ("Название банды", r"🏷\s*Название:\s*(?P<gang_name>[^\n]+)", "Название = {gang_name}", "gang_name"),
+                            ("Верность банды", r"🤝\s*Верность:\s*(?P<gang_loyalty_cur>\d+)(?:/\d+)?", "Верность = {gang_loyalty_cur}", "gang_loyalty_cur"),
+                            ("Урон банды", r"⚔️\s*Урон:\s*(?P<gang_damage>\d+)%", "Урон = {gang_damage}%", "gang_damage"),
+                            ("Шанс срабатывания", r"🎯\s*Шанс срабатывания:\s*(?P<gang_chance>\d+)%", "Шанс = {gang_chance}%", "gang_chance"),
+                            ("Кулон", r"📿\s*Кулон:\s*(?P<gang_pendant>[^\n]+)", "Кулон = {gang_pendant}", "gang_pendant"),
+                            ("Время кулона", r"🕒\s*Время действия:\s*(?P<gang_pendant_duration>[^\n]+)", "Время кулона = {gang_pendant_duration}", "gang_pendant_duration"),
+                            ("Брать на тусу", r"(?:💃🏻|💃)\s*Брать на тусу:\s*(?P<gang_party>[^\n]+)", "Брать на тусу = {gang_party}", "gang_party")
+                        ]
+                        for sub_name, pattern, output_val, var_name in rules_data:
+                            cursor_sub = await conn.execute(
+                                "INSERT INTO recognition_subcommands (command_id, name) VALUES (?, ?)", (gang_cmd_id, sub_name)
+                            )
+                            sub_id = cursor_sub.lastrowid
+                            await conn.execute("""
+                                INSERT INTO recognition_rules (subcommand_id, pattern, output_value, variable_name)
+                                VALUES (?, ?, ?, ?)
+                            """, (sub_id, pattern, output_val, var_name))
+                        logger.info("Миграция: Добавлены правила распознавания для 'Моя банда'.")
 
             # 5. Добавление подкоманд и правил для "Мой инвентарь" (на случай если база уже создана или имеет старый формат)
             async with conn.execute("SELECT id FROM monitored_commands WHERE command = 'Мой инвентарь'") as cursor:
@@ -1147,7 +1231,17 @@ class DBManager:
                     eq_gems TEXT,
                     eq_health TEXT,
                     eq_attack TEXT,
-                    eq_defense TEXT
+                    eq_defense TEXT,
+                    has_gang INTEGER,
+                    gang_type TEXT,
+                    gang_name TEXT,
+                    gang_loyalty_cur INTEGER,
+                    gang_loyalty_max INTEGER,
+                    gang_damage INTEGER,
+                    gang_chance INTEGER,
+                    gang_pendant TEXT,
+                    gang_pendant_duration TEXT,
+                    gang_party TEXT
                 );
             """)
             await r_conn.commit()
@@ -1202,6 +1296,16 @@ class DBManager:
                 ("eq_health", "TEXT"),
                 ("eq_attack", "TEXT"),
                 ("eq_defense", "TEXT"),
+                ("has_gang", "INTEGER"),
+                ("gang_type", "TEXT"),
+                ("gang_name", "TEXT"),
+                ("gang_loyalty_cur", "INTEGER"),
+                ("gang_loyalty_max", "INTEGER"),
+                ("gang_damage", "INTEGER"),
+                ("gang_chance", "INTEGER"),
+                ("gang_pendant", "TEXT"),
+                ("gang_pendant_duration", "TEXT"),
+                ("gang_party", "TEXT"),
                 ("daily_status", "TEXT"),
                 ("reserve_days", "INTEGER"),
                 ("daily_completed", "INTEGER"),
@@ -1381,7 +1485,7 @@ class DBManager:
                 ('excel_продать_букашки_n', 'Продать букашки N', '', 0),
                 ('excel_на_арену', 'На Арену', '', 0),
                 ('excel_арена_сезон', 'Арена сезон', '', 0),
-                ('excel_моя_банда', 'Моя банда', '', 0),
+                ('excel_моя_банда', 'Моя банда', r'^моя\s+банда$', 0),
                 ('excel_собрать_банду', 'Собрать банду', '', 0),
                 ('excel_брать_на_тусу', 'Брать на тусу', '', 0),
                 ('excel_скрафтить_наголовник_из_грязи', 'Скрафтить наголовник из грязи', '', 0),
@@ -2048,8 +2152,9 @@ class DBManager:
                     eq_melee, eq_ranged, eq_helmet, eq_helmet_mod, eq_chest, eq_chest_mod, eq_paws, eq_paws_mod, eq_buffs,
                     eq_gang, eq_booster, eq_parts_weapon, eq_parts_algae, eq_parts_lily, eq_parts_beak,
                     eq_gems, eq_health, eq_attack, eq_defense,
+                    has_gang, gang_type, gang_name, gang_loyalty_cur, gang_loyalty_max, gang_damage, gang_chance, gang_pendant, gang_pendant_duration, gang_party,
                     daily_status, reserve_days, daily_completed, daily_tasks, daily_reward, daily_bonus_tasks, daily_bonus_reward
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(vk_id) DO UPDATE SET
                     last_updated = excluded.last_updated,
                     work_info = COALESCE(excluded.work_info, toad_states.work_info),
@@ -2117,6 +2222,16 @@ class DBManager:
                     eq_health = COALESCE(excluded.eq_health, toad_states.eq_health),
                     eq_attack = COALESCE(excluded.eq_attack, toad_states.eq_attack),
                     eq_defense = COALESCE(excluded.eq_defense, toad_states.eq_defense),
+                    has_gang = COALESCE(excluded.has_gang, toad_states.has_gang),
+                    gang_type = COALESCE(excluded.gang_type, toad_states.gang_type),
+                    gang_name = COALESCE(excluded.gang_name, toad_states.gang_name),
+                    gang_loyalty_cur = COALESCE(excluded.gang_loyalty_cur, toad_states.gang_loyalty_cur),
+                    gang_loyalty_max = COALESCE(excluded.gang_loyalty_max, toad_states.gang_loyalty_max),
+                    gang_damage = COALESCE(excluded.gang_damage, toad_states.gang_damage),
+                    gang_chance = COALESCE(excluded.gang_chance, toad_states.gang_chance),
+                    gang_pendant = COALESCE(excluded.gang_pendant, toad_states.gang_pendant),
+                    gang_pendant_duration = COALESCE(excluded.gang_pendant_duration, toad_states.gang_pendant_duration),
+                    gang_party = COALESCE(excluded.gang_party, toad_states.gang_party),
                     daily_status = COALESCE(excluded.daily_status, toad_states.daily_status),
                     reserve_days = COALESCE(excluded.reserve_days, toad_states.reserve_days),
                     daily_completed = COALESCE(excluded.daily_completed, toad_states.daily_completed),
@@ -2158,6 +2273,11 @@ class DBManager:
                 data.get("eq_parts_lily"), data.get("eq_parts_beak"),
                 data.get("eq_gems"), data.get("eq_health"),
                 data.get("eq_attack"), data.get("eq_defense"),
+                data.get("has_gang"), data.get("gang_type"), data.get("gang_name"),
+                data.get("gang_loyalty_cur"), data.get("gang_loyalty_max"),
+                data.get("gang_damage"), data.get("gang_chance"),
+                data.get("gang_pendant"), data.get("gang_pendant_duration"),
+                data.get("gang_party"),
                 data.get("daily_status"), data.get("reserve_days"), data.get("daily_completed"),
                 data.get("daily_tasks"), data.get("daily_reward"),
                 data.get("daily_bonus_tasks"), data.get("daily_bonus_reward")
@@ -2242,6 +2362,23 @@ class DBManager:
             if parsed_data is not None:
                 if player_vk_id is not None:
                     await self.update_account_fields(player_vk_id, parsed_data)
+                return "Да"
+            return "Нет"
+
+        if command_name == "Моя банда":
+            from src.utils.toad_info_parser import parse_gang
+            parsed_data = parse_gang(text)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.save_toad_state(player_vk_id, parsed_data)
+                    allowed_columns = {
+                        "has_gang", "gang_type", "gang_name", 
+                        "gang_loyalty_cur", "gang_loyalty_max", 
+                        "gang_damage", "gang_chance", "gang_pendant", 
+                        "gang_pendant_duration", "gang_party"
+                    }
+                    filtered_fields = {k: v for k, v in parsed_data.items() if k in allowed_columns}
+                    await self.update_account_fields(player_vk_id, filtered_fields)
                 return "Да"
             return "Нет"
 

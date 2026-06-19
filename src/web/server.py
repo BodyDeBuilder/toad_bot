@@ -735,6 +735,14 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
                 from src.utils.toad_info_parser import parse_dailies
                 parsed_data = parse_dailies(text)
                 recognized = parsed_data is not None
+            elif cmd_real_name == "Моя семья":
+                from src.utils.toad_info_parser import parse_family
+                parsed_data = parse_family(text, "")
+                recognized = parsed_data is not None
+            elif cmd_real_name == "Моя банда":
+                from src.utils.toad_info_parser import parse_gang
+                parsed_data = parse_gang(text)
+                recognized = parsed_data is not None
             else:
                 recognized = any_matched
                 

@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
         parsedAccount: null,      // Распарсенный на Шаге 1 аккаунт
         deletingAccountId: null,  // ID удаляемого аккаунта
         activeTab: 'schedule',    // Активная вкладка ('schedule', 'stats', 'logs', 'settings')
-        activeSubTab: 'general',  // Активная подвкладка статистики ('general', 'toad', 'family', 'arena', 'clan', 'inventory')
+        activeSubTab: 'general',  // Активная подвкладка статистики ('general', 'toad', 'family', 'gang', 'arena', 'clan', 'inventory')
         renderedAccountId: null,  // ID последнего отрендеренного аккаунта деталей
         globalSettings: {},       // Глобальные настройки (фора начала, похода и завершения работы)
         monitorHasFailed: false   // Флаг наличия нераспознанных ответов в отладке
@@ -1664,7 +1664,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     "🪨": "cr_stone",
                     "🎭": "cr_mask",
                     "📃": "cr_paper",
-                    "⚡️": "cr_lightning"
+                    "⚡️": "cr_lightning",
+                    "Партнер": "partner",
+                    "Дни в браке": "marriage_days",
+                    "Конфетки": "candies",
+                    "Имя жабёнка": "froglet",
+                    "Авторитет": "family_authority",
+                    "Покормить через": "feed_in",
+                    "Забрать через": "kindergarten",
+                    "Махач через": "clash",
+                    "Тип банды": "gang_type",
+                    "Название банды": "gang_name",
+                    "Верность банды": "gang_loyalty_cur",
+                    "Урон банды": "gang_damage",
+                    "Шанс срабатывания": "gang_chance",
+                    "Кулон": "gang_pendant",
+                    "Время кулона": "gang_pendant_duration",
+                    "Брать на тусу": "gang_party"
                 };
                 const cleanSubName = sub.name.replace(" Вектор", "").trim();
                 const key = SECTION_KEYS[cleanSubName] || "";
@@ -2389,6 +2405,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button class="sub-tab-btn ${state.activeSubTab === 'general' ? 'active' : ''}" data-subtab="general">Общее</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'toad' ? 'active' : ''}" data-subtab="toad">Жаба</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'family' ? 'active' : ''}" data-subtab="family">Семья</button>
+                            <button class="sub-tab-btn ${state.activeSubTab === 'gang' ? 'active' : ''}" data-subtab="gang">Банда</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'arena' ? 'active' : ''}" data-subtab="arena">Арена</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'clan' ? 'active' : ''}" data-subtab="clan">Клан</button>
                             <button class="sub-tab-btn ${state.activeSubTab === 'inventory' ? 'active' : ''}" data-subtab="inventory">Инвентарь</button>
@@ -2639,6 +2656,53 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Махач через</span>
                                                 <span class="stat-value" id="stat-row-family-clash">Загрузка...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Подвкладка: Банда -->
+                            <div class="sub-tab-content ${state.activeSubTab === 'gang' ? '' : 'hidden'}" id="sub-tab-gang">
+                                <div class="stats-columns-grid" style="grid-template-columns: 1fr; max-width: 480px; margin: 0;">
+                                    <div class="stats-column-wrapper">
+                                        <div class="column-timer" id="timer-column-gang">
+                                            <span class="dot"></span>
+                                            <span>Проверено: загрузка...</span>
+                                        </div>
+                                        <div class="stats-column">
+                                            <div class="stats-column-title">🏋️ Банда</div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Тип банды</span>
+                                                <span class="stat-value" id="stat-row-gang-type">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Название</span>
+                                                <span class="stat-value" id="stat-row-gang-name">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Верность</span>
+                                                <span class="stat-value" id="stat-row-gang-loyalty">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Урон</span>
+                                                <span class="stat-value" id="stat-row-gang-damage">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Шанс срабатывания</span>
+                                                <span class="stat-value" id="stat-row-gang-chance">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Кулон</span>
+                                                <span class="stat-value" id="stat-row-gang-pendant">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Время кулона</span>
+                                                <span class="stat-value" id="stat-row-gang-pendant-duration">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Брать на тусу</span>
+                                                <span class="stat-value" id="stat-row-gang-party">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -3301,6 +3365,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        const timerGang = document.querySelector('#timer-column-gang span:last-child');
+        const dotGang = document.querySelector('#timer-column-gang .dot');
+        if (timerGang) {
+            const fullText = `Проверено: ${timeAgoText}`;
+            if (timerGang.textContent !== fullText) timerGang.textContent = fullText;
+            if (dotGang) {
+                if (acc.last_checked) {
+                    dotGang.classList.remove('offline');
+                } else {
+                    dotGang.classList.add('offline');
+                }
+            }
+        }
+
         // 2. Обновляем текстовые значения статистики в подвкладке «Жаба»
         const rowSatiety = document.getElementById('stat-row-satiety');
         if (rowSatiety) {
@@ -3640,6 +3718,55 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rowArenaPoints) {
             const val = `⭐ ${acc.arena_points || 0}`;
             if (rowArenaPoints.textContent !== val) rowArenaPoints.textContent = val;
+        }
+
+        // Характеристики Банды:
+        const rowGangType = document.getElementById('stat-row-gang-type');
+        if (rowGangType) {
+            const val = (!acc.has_gang || acc.gang_type === '-' || !acc.gang_type) ? '—' : acc.gang_type;
+            if (rowGangType.textContent !== val) rowGangType.textContent = val;
+        }
+
+        const rowGangName = document.getElementById('stat-row-gang-name');
+        if (rowGangName) {
+            const val = (!acc.has_gang || acc.gang_name === '-' || !acc.gang_name) ? '—' : acc.gang_name;
+            if (rowGangName.textContent !== val) rowGangName.textContent = val;
+        }
+
+        const rowGangLoyalty = document.getElementById('stat-row-gang-loyalty');
+        if (rowGangLoyalty) {
+            const val = (!acc.has_gang || acc.gang_loyalty_cur === undefined || acc.gang_loyalty_cur === null) ? '—' : `🤝 ${acc.gang_loyalty_cur}`;
+            if (rowGangLoyalty.textContent !== val) rowGangLoyalty.textContent = val;
+        }
+
+        const rowGangDamage = document.getElementById('stat-row-gang-damage');
+        if (rowGangDamage) {
+            const val = (!acc.has_gang || acc.gang_damage === undefined || acc.gang_damage === null) ? '—' : `⚔️ ${acc.gang_damage}%`;
+            if (rowGangDamage.textContent !== val) rowGangDamage.textContent = val;
+        }
+
+        const rowGangChance = document.getElementById('stat-row-gang-chance');
+        if (rowGangChance) {
+            const val = (!acc.has_gang || acc.gang_chance === undefined || acc.gang_chance === null) ? '—' : `🎯 ${acc.gang_chance}%`;
+            if (rowGangChance.textContent !== val) rowGangChance.textContent = val;
+        }
+
+        const rowGangPendant = document.getElementById('stat-row-gang-pendant');
+        if (rowGangPendant) {
+            const val = (!acc.has_gang || acc.gang_pendant === '-' || !acc.gang_pendant) ? '—' : acc.gang_pendant;
+            if (rowGangPendant.textContent !== val) rowGangPendant.textContent = val;
+        }
+
+        const rowGangPendantDuration = document.getElementById('stat-row-gang-pendant-duration');
+        if (rowGangPendantDuration) {
+            const val = (!acc.has_gang || acc.gang_pendant_duration === '-' || !acc.gang_pendant_duration) ? '—' : acc.gang_pendant_duration;
+            if (rowGangPendantDuration.textContent !== val) rowGangPendantDuration.textContent = val;
+        }
+
+        const rowGangParty = document.getElementById('stat-row-gang-party');
+        if (rowGangParty) {
+            const val = (!acc.has_gang || acc.gang_party === '-' || !acc.gang_party) ? '—' : acc.gang_party;
+            if (rowGangParty.textContent !== val) rowGangParty.textContent = val;
         }
 
         // Банда / Клан:

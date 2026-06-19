@@ -10,6 +10,7 @@ class KnowledgeBase:
     ACTION_EQUIPMENT = "equipment"
     ACTION_FEED = "feed"
     ACTION_DAILIES = "dailies"
+    ACTION_GANG = "excel_моя_банда"
 
     # Регулярные выражения триггеров команд пользователя
     COMMAND_TRIGGERS = {
@@ -40,6 +41,10 @@ class KnowledgeBase:
         ACTION_DAILIES: re.compile(
             r"^(дейлики|ежедневные\s+задания)$",
             re.IGNORECASE
+        ),
+        ACTION_GANG: re.compile(
+            r"^моя\s+банда$",
+            re.IGNORECASE
         )
     }
 
@@ -52,6 +57,7 @@ class KnowledgeBase:
         ACTION_EQUIPMENT: False,
         ACTION_FEED: False,
         ACTION_DAILIES: False,
+        ACTION_GANG: False,
     }
 
     # Регулярные выражения для распознавания ответов Жабабота и обновления БД
@@ -156,6 +162,19 @@ class KnowledgeBase:
         {
             "pattern": re.compile(r"Ежедневные\s+задания:", re.IGNORECASE),
             "action_type": ACTION_DAILIES,
+            "db_updates": {}
+        },
+        # --- БАНДА ---
+        {
+            # Сценарий А (Есть банда)
+            "pattern": re.compile(r"🏋️\s*Банда:", re.IGNORECASE),
+            "action_type": ACTION_GANG,
+            "db_updates": {}
+        },
+        {
+            # Сценарий Б (Нет банды)
+            "pattern": re.compile(r"У\s+тебя\s+нет\s+банды", re.IGNORECASE),
+            "action_type": ACTION_GANG,
             "db_updates": {}
         }
     ]
