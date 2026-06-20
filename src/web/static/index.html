@@ -173,8 +173,8 @@
 
     <!-- Модальное окно Мониторинга -->
     <div class="modal-overlay" id="monitor-modal-overlay">
-        <div class="modal" style="max-width: 1400px; width: 95%; height: 85vh; display: flex; flex-direction: column;">
-            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; flex-shrink: 0; margin-bottom: 12px;">
+        <div class="modal modal-fullscreen" style="display: flex; flex-direction: column;">
+            <div class="modal-header" style="flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; flex-shrink: 0; margin-bottom: 4px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                     <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">📊 Мониторинг ответов Жабабота</h3>
                     <button class="close-btn" id="btn-close-monitor-modal" style="margin: 0;">&times;</button>
@@ -245,8 +245,23 @@
                     </div>
                 </div>
                 <!-- Панель 2: Распознавание -->
-                <div id="panel-recognition-tab" class="hidden" style="width: 100%; height: 100%; padding: 16px; box-sizing: border-box;">
-                    <div id="recognition-accordion-container" style="display: flex; flex-direction: column; gap: 12px;">
+                <div id="panel-recognition-tab" class="hidden" style="width: 100%; height: 100%; padding: 8px; box-sizing: border-box;">
+                    <!-- Подвкладки по типу парсера: Контроль / Простой / Добавочный / Контроль+Лут -->
+                    <div id="recognition-subtabs" style="display: flex; gap: 4px; align-items: center; padding: 4px 0 8px 0; border-bottom: 1px solid var(--border-glass); margin-bottom: 8px; flex-wrap: wrap;">
+                        <button type="button" class="rec-subtab-btn active" data-subtab="control" style="background: none; border: 1px solid transparent; font-size: 12px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 8px; transition: all 0.2s; color: var(--color-text-main); background: rgba(124,77,255,0.15); border-color: rgba(124,77,255,0.4);">
+                            🟣 Контроль <span class="rec-subtab-count" style="font-size: 10px; opacity: 0.7;">(0)</span>
+                        </button>
+                        <button type="button" class="rec-subtab-btn" data-subtab="simple" style="background: none; border: 1px solid transparent; font-size: 12px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 8px; transition: all 0.2s; color: var(--color-text-muted);">
+                            🔵 Простой <span class="rec-subtab-count" style="font-size: 10px; opacity: 0.7;">(0)</span>
+                        </button>
+                        <button type="button" class="rec-subtab-btn" data-subtab="additive" style="background: none; border: 1px solid transparent; font-size: 12px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 8px; transition: all 0.2s; color: var(--color-text-muted);">
+                            🟠 Добавочный <span class="rec-subtab-count" style="font-size: 10px; opacity: 0.7;">(0)</span>
+                        </button>
+                        <button type="button" class="rec-subtab-btn" data-subtab="hybrid" style="background: none; border: 1px solid transparent; font-size: 12px; font-weight: 600; padding: 4px 12px; cursor: pointer; border-radius: 8px; transition: all 0.2s; color: var(--color-text-muted);">
+                            🟣➕🟠 Контроль + Лут <span class="rec-subtab-count" style="font-size: 10px; opacity: 0.7;">(0)</span>
+                        </button>
+                    </div>
+                    <div id="recognition-accordion-container" style="display: flex; flex-direction: column; gap: 6px;">
                         <!-- Accordion rows of recognition rules will be loaded here -->
                         <div class="loading-placeholder">
                             <div class="spinner"></div>
@@ -255,7 +270,7 @@
                     </div>
                 </div>
                 <!-- Панель 3: Отладка -->
-                <div id="panel-debug-tab" class="hidden" style="width: 100%; height: 100%; padding: 16px; box-sizing: border-box;">
+                <div id="panel-debug-tab" class="hidden" style="width: 100%; height: 100%; padding: 8px; box-sizing: border-box;">
                     <div id="debug-accordion-container" style="display: flex; flex-direction: column; gap: 12px;">
                         <!-- Accordion rows of unrecognized monitored responses will be loaded here -->
                         <div class="loading-placeholder">
@@ -265,7 +280,7 @@
                     </div>
                 </div>
                 <!-- Панель 4: Тест -->
-                <div id="panel-test-tab" class="hidden" style="width: 100%; height: 100%; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;">
+                <div id="panel-test-tab" class="hidden" style="width: 100%; height: 100%; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px;">
                     <!-- Row 1: Command Name Input with Autocomplete list -->
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <label for="test-command-input" style="font-weight: 600; font-size: 12px; color: var(--color-text-main);">Имя команды для распознавания:</label>
@@ -297,7 +312,7 @@
                     </div>
                 </div>
                 <!-- Панель 5: Аудит дельт -->
-                <div id="panel-delta-audit-tab" class="hidden" style="width: 100%; height: 100%; padding: 16px; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px;">
+                <div id="panel-delta-audit-tab" class="hidden" style="width: 100%; height: 100%; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 12px; color: var(--color-text-muted);">Журнал инкрементов, декрементов и предупреждений о ненаходе обязательных полей</span>
                         <button id="btn-clear-delta-audit" class="btn secondary small" style="padding: 4px 12px; font-size: 11px; margin: 0; background: transparent; border-color: var(--border-glass-hover); color: var(--color-text-main); cursor: pointer; border-radius: 6px;">Очистить</button>
@@ -306,9 +321,6 @@
                         <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">Загрузка...</div>
                     </div>
                 </div>
-            </div>
-            <div class="modal-actions" style="justify-content: flex-end; gap: 12px; flex-shrink: 0; border-top: 1px solid var(--border-glass); padding-top: 12px; margin-top: 0;">
-                <button type="button" class="btn secondary" id="btn-close-monitor-footer">Закрыть</button>
             </div>
         </div>
     </div>

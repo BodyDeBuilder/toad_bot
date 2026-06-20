@@ -16,8 +16,12 @@ from src.utils.toad_info_parser import (
     parse_family,
     parse_clan,
     parse_gang,
+    parse_arena_battle,
+    parse_clan_war,
+    parse_gift_received,
     toad_state_to_account_fields,
 )
+from src.vk.account_resolver import resolve as account_resolve, ResolveResult
 
 logger = logging.getLogger("toadbot.vk.handlers")
 
@@ -146,7 +150,93 @@ def register_handlers(user: User, db: DBManager, vk_id: int, pending_manager: An
 
                 # Проверяем соответствие ответа Жабабота шаблонам из Базы Знаний
                 bot_match = KnowledgeBase.match_bot_response(text)
-                
+
+                # ── PUSH-путь: bot-initiated сообщения (арена, клан, подарки) ──
+                if bot_match and bot_match["action_type"] in KnowledgeBase.PUSH_ACTIONS:
+                    async def _process_push_message():
+                        try:
+                            # Получаем полный объект сообщения (fwd/reply) для AccountResolver
+                            full_res = await message.ctx_api.messages.get_by_id(message_ids=[message.id])
+                            reply_msg = None
+                            fwd_msgs = []
+                            msg_text = text
+                            if full_res and full_res.items:
+                                full_msg = full_res.items[0]
+                                reply_msg = getattr(full_msg, "reply_message", None)
+                                fwd_msgs = getattr(full_msg, "fwd_messages", []) or []
+                                # Добавляем кнопки в текст (если есть)
+                                btn_text = extract_buttons(full_msg)
+                                if btn_text:
+                                    msg_text = f"{text}\n{btn_text}"
+
+                            # Все аккаунты в этом чате — кандидаты для резолвинга
+                            candidates = await db.get_all_accounts()
+
+                            # AccountResolver определяет, кому из наших адресовано
+                            resolved = account_resolve(
+                                text=msg_text,
+                                candidates=candidates,
+                                reply_message=reply_msg,
+                                fwd_messages=fwd_msgs,
+                            )
+
+                            if not resolved:
+                                logger.debug(f"[{vk_id}] Push «{bot_match['action_type']}» не адресован ни одному из наших аккаунтов")
+                                return
+
+                            action_type = bot_match["action_type"]
+
+                            # Вызываем специализированный парсер для каждого резолвленного аккаунта
+                            for rr in resolved:
+                                parsed = None
+                                acc_name = ""
+                                # Ищем имя аккаунта для передачи в парсер
+                                for c in candidates:
+                                    if c["vk_id"] == rr.vk_id:
+                                        acc_name = c.get("name", "")
+                                        break
+
+                                try:
+                                    if action_type == KnowledgeBase.ACTION_ARENA_BATTLE:
+                                        parsed = parse_arena_battle(msg_text)
+                                    elif action_type == KnowledgeBase.ACTION_CLAN_WAR:
+                                        parsed = parse_clan_war(msg_text, target_vk_id=rr.vk_id, target_name=acc_name)
+                                    elif action_type == KnowledgeBase.ACTION_GIFT_RECEIVED:
+                                        parsed = parse_gift_received(msg_text, target_name=acc_name)
+                                except Exception as pex:
+                                    logger.error(f"[{rr.vk_id}] Ошибка парсинга push «{action_type}»: {pex}", exc_info=True)
+
+                                if not parsed:
+                                    continue
+
+                                # Алерт при несовпадении имени в теге с accounts.name
+                                if not rr.name_verified and rr.raw_name:
+                                    logger.warning(
+                                        f"[{rr.vk_id}] PUSH name mismatch: tag says '{rr.raw_name}', "
+                                        f"account.name = '{acc_name}' (source={rr.source})"
+                                    )
+                                    await db.log_action(
+                                        rr.vk_id, "warning",
+                                        f"⚠ Name mismatch в теге push-сообщения: тег='{rr.raw_name}', аккаунт='{acc_name}'"
+                                    )
+
+                                # Сохраняем через _deltas механизм (additive)
+                                await db.save_toad_state(rr.vk_id, parsed)
+                                logger.info(
+                                    f"[{rr.vk_id}] Push «{action_type}» сохранён: "
+                                    f"deltas={parsed.get('_deltas', {})}, source={rr.source}"
+                                )
+                                await db.log_action(
+                                    rr.vk_id, "game_event",
+                                    f"Push-событие «{action_type}» (source={rr.source}): {msg_text[:120]}..."
+                                )
+                        except Exception as ex:
+                            logger.error(f"[{vk_id}] Ошибка обработки push-сообщения: {ex}", exc_info=True)
+
+                    import asyncio
+                    asyncio.create_task(_process_push_message())
+                    return  # push обработан, не идём дальше в обычную логику
+
                 # Проверяем, адресован ли этот ответ нашему аккаунту или кому-то другому:
                 is_for_us = False
                 is_for_someone_else = False

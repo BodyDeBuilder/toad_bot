@@ -12,6 +12,15 @@ class KnowledgeBase:
     ACTION_DAILIES = "dailies"
     ACTION_GANG = "excel_моя_банда"
 
+    # Push-action типы: ответы Жабабота, инициируемые ботом по расписанию (не на команду пользователя).
+    # Резолв получателя — по тегу [id|] / fwd / имени, минуя pending-очередь команд.
+    ACTION_ARENA_BATTLE = "arena_battle"
+    ACTION_CLAN_WAR = "clan_war"
+    ACTION_GIFT_RECEIVED = "gift_received"
+
+    # Множество всех push-action типов (для быстрой проверки в handlers.py)
+    PUSH_ACTIONS = frozenset({ACTION_ARENA_BATTLE, ACTION_CLAN_WAR, ACTION_GIFT_RECEIVED})
+
     # Регулярные выражения триггеров команд пользователя
     COMMAND_TRIGGERS = {
         ACTION_WORK: re.compile(
@@ -256,6 +265,14 @@ class KnowledgeBase:
                         logger.error(f"Ошибка парсинга построчного шаблона '{row['category']}': {e}")
                         
         logger.info(f"База Знаний успешно загружена в память. Команд: {len(cls.COMMAND_TRIGGERS)}, Шаблонов: {len(cls.RESPONSE_PATTERNS)}")
+
+        # Загружаем правила лута из таблиц loot_groups + loot_items в toad_info_parser.
+        # Если БД пуста — остаётся дефолтный hardcoded-набор (фоллбэк).
+        try:
+            from src.utils.toad_info_parser import load_loot_rules_from_db
+            await load_loot_rules_from_db(db)
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить правила лута из БД ({e}); используется дефолтный набор")
 
     @classmethod
     def get_command_type(cls, text: str) -> Optional[str]:

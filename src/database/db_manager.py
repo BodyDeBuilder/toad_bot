@@ -311,6 +311,47 @@ class DBManager:
                 );
             """)
 
+            # ── БД «Выпадающий лут»: 2-уровневая модель (группа → предметы) ──
+            # Группа = шаблон текста (regex для строки лута, группа 1 = число).
+            # Предмет = конкретный вид (эмодзи → колонка в toad_states).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS loot_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_key TEXT UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    pattern_regex TEXT NOT NULL,
+                    description TEXT DEFAULT ''
+                );
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS loot_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id INTEGER NOT NULL REFERENCES loot_groups(id) ON DELETE CASCADE,
+                    emoji TEXT NOT NULL,
+                    db_column TEXT NOT NULL,
+                    item_name TEXT DEFAULT '',
+                    item_regex TEXT DEFAULT ''
+                );
+            """)
+
+            # Связь «команда → какие группы лута могут выпасть».
+            # section_header — фраза, после которой идёт блок лута
+            #   («Ты получил», «Каждый из вас получил», «<Имя> получил», custom).
+            # recipient_mode — как определить получателя:
+            #   pending (по FIFO-очереди команд), tag (по тегу [id|]),
+            #   fwd (по пересланному сообщению), name (по bare-имени).
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS command_loot_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    command_id INTEGER NOT NULL REFERENCES monitored_commands(id) ON DELETE CASCADE,
+                    group_id INTEGER NOT NULL REFERENCES loot_groups(id) ON DELETE CASCADE,
+                    section_header TEXT DEFAULT 'Ты получил',
+                    recipient_mode TEXT DEFAULT 'pending',
+                    UNIQUE(command_id, group_id)
+                );
+            """)
+
             await conn.commit()
 
             # Seed virtual commands for monitoring if they don't exist
@@ -361,6 +402,11 @@ class DBManager:
                     await conn.execute(f"ALTER TABLE accounts ADD COLUMN {new_col} {new_type};")
                 except sqlite3.OperationalError:
                     pass
+            # Миграция: добавляем item_regex в loot_items (если таблица уже существовала без него)
+            try:
+                await conn.execute("ALTER TABLE loot_items ADD COLUMN item_regex TEXT DEFAULT '';")
+            except sqlite3.OperationalError:
+                pass
             await conn.commit()
 
             # 10. Таблицы новой системы распознавания правил
@@ -387,12 +433,49 @@ class DBManager:
                 await conn.execute(
                     "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
                 )
-            # Принудительно включаем распознавание для «Моя жаба», «Жаба инфо», «Мой инвентарь», «Мое снаряжение», «Покормить жабу», «Дейлики» и «Моя семья»
-            await conn.execute("UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья')")
+
+            # Команды-источники лута (дроп семян/кусочков). parser_type = additive, in_recognition = 1.
+            # Парсеры и регексы добавляются позже; до них ответы получают статус «Не распознаем».
+            ADDITIVE_LOOT_COMMANDS = (
+                "Откормить жабу",
+                "Завершить работу",
+                "На Арену",
+                "Отправиться в бронзовое подземелье",
+                "Отправиться в серебряное подземелье",
+                "Отправиться в золотое подземелье",
+                "Покормить жабенка",
+            )
+            for cmd_name in ADDITIVE_LOOT_COMMANDS:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
+                )
+
+            # Push-события Жабабота (бот инициирует сам, не на команду пользователя):
+            # результаты боёв по расписанию, клановые войны, получения/подарки.
+            # parser_type = additive, in_recognition = 1. Резолв получателя — по тегу [id|] / fwd / имени.
+            PUSH_EVENT_COMMANDS = (
+                "Бой арены",
+                "Клановая война",
+                "Получение",
+            )
+            for cmd_name in PUSH_EVENT_COMMANDS:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO monitored_commands (command) VALUES (?)", (cmd_name,)
+                )
+            for cmd_name in PUSH_EVENT_COMMANDS:
+                await conn.execute(
+                    "UPDATE monitored_commands SET parser_type = 'additive', in_recognition = 1 WHERE command = ?",
+                    (cmd_name,)
+                )
+            # Принудительно включаем распознавание для базовых команд + всех additive-команд лута
+            await conn.execute(
+                "UPDATE monitored_commands SET in_recognition = 1 WHERE command IN ('Моя жаба', 'Жаба инфо', 'Мой инвентарь', 'Мое снаряжение', 'Покормить жабу', 'Дейлики', 'Моя семья', "
+                + ", ".join("'" + c + "'" for c in ADDITIVE_LOOT_COMMANDS) + ")"
+            )
 
             # Посев типа парсера (parser_type) для существующих команд.
             # control — перезапись полного состояния (Жаба инфо, Моя жаба, инвентарь и т.д.)
-            # additive — извлечение дельт/лута и прибавление к текущим значениям (Покормить жабу)
+            # additive — извлечение дельт/лута и прибавление к текущим значениям (Покормить жабу и др. источники лута)
             # simple — только regex-статус успеха/кулдауна, без детального парсинга (Работа)
             await conn.execute("""
                 UPDATE monitored_commands SET parser_type = CASE
@@ -405,6 +488,11 @@ class DBManager:
             """)
             await conn.execute("UPDATE monitored_commands SET parser_type = 'additive' WHERE command = 'Покормить жабу'")
             await conn.execute("UPDATE monitored_commands SET parser_type = 'simple' WHERE command = 'Работа'")
+            # Принудительно выставляем additive для всех команд-источников лута (на случай, если строки уже существовали)
+            for cmd_name in ADDITIVE_LOOT_COMMANDS:
+                await conn.execute(
+                    "UPDATE monitored_commands SET parser_type = 'additive' WHERE command = ?", (cmd_name,)
+                )
             await conn.commit()
 
             # Посев описаний (description) для известных команд — справка для разработчика
@@ -422,12 +510,99 @@ class DBManager:
                 "Мой клан": "Информация о клане жабы: название, состав, бонусы. Перезаписывает клановые поля (control).",
                 "Моя банда": "Состав банды жабы: имя, лояльность, урон, шанс,pendant. Перезаписывает поля банды (control).",
                 "Моя семья": "Состав семьи жабы: партнёр, дети, жабята. Перезаписывает семейные поля (control).",
+                # --- Команды-источники лута (additive): копят дроп через _deltas ---
+                "Откормить жабу": "Принудительное кормление за букашки: при успехе прибавляет сытость и иногда случайный крафт-кусок (additive).",
+                "Завершить работу": "Забрать жабу с работы: прибавляет награду (букашки, иногда крафт-кусочки) к текущим значениям (additive).",
+                "На Арену": "PvP-арена: при победе может выпасть дроп (семена, крафт-кусочки). Приращения копятся через _deltas (additive).",
+                "Отправиться в бронзовое подземелье": "Рейд на босса (бронза): при победе каждому участнику выпадают снаряж. кусочки и иногда семена (additive).",
+                "Отправиться в серебряное подземелье": "Рейд на босса (серебро): при победе каждому участнику выпадают снаряж. кусочки и иногда семена (additive).",
+                "Отправиться в золотое подземелье": "Рейд на босса (золото): при победе каждому участнику выпадают снаряж. кусочки и иногда семена (additive).",
+                "Покормить жабенка": "Кормление ребёнка: даёт сытость ребёнку, повышает уровень, иногда выплёвывает семена/кусочки родителям (additive).",
+                # --- Push-события Жабабота (additive): инициируются ботом, не командой пользователя ---
+                "Бой арены": "Результат PvP-боя на арене по расписанию (push от Жабабота). При победе/поражении/ничьей прибавляет wins/losses/draws и лут из «Ты получил:». Получатель резолвится по тегу [id|] (additive).",
+                "Клановая война": "Результат клановой войны по расписанию (push от Жабабота). При победе каждому участнику прибавляет общий дроп («Каждый из вас получил:») + индивидуальный по имени («X получил:») (additive).",
+                "Получение": "Перевод/подарок вещей от Жабабота не на команду (push): «X получил: Букашки +N» и т.п. Прибавляет лут к текущим значениям. Получатель — по тегу [id|] или имени (additive).",
             }
             for cmd_name, desc in known_descriptions.items():
                 await conn.execute(
                     "UPDATE monitored_commands SET description = ? WHERE command = ? AND (description IS NULL OR description = '')",
                     (desc, cmd_name)
                 )
+            await conn.commit()
+
+            # ── Посев БД «Выпадающий лут» (loot_groups + loot_items) ──
+            # 2-уровневая модель: группа = логическая категория лута,
+            # предмет = конкретный вид (эмодзи → колонка в toad_states) со своим regex.
+            #
+            # Для групп с переменным эмодзи (seed/craft_piece/equipment_part):
+            # pattern_regex группы — это человекочитаемый шаблон/комментарий,
+            # а РАБОЧИЙ regex хранится в loot_items.item_regex (по одному на эмодзи).
+            # Для одиночных групп (bugs/arena_points/map) — единственный regex в группе,
+            # loot_items для них не заводим.
+            #
+            # Поле item_regex (ниже в миграциях) хранит полный regex строки предмета,
+            # где группа 1 = число. Парсер перебирает все предметы группы по item_regex.
+            loot_groups_seed = [
+                # (group_key, name, pattern_regex, description)
+                ("bugs", "Букашки",
+                 r"🐞\s*Букашки?\s*:\s*([+-]?\d+)",
+                 "Основная валюта жабы. Одиночная группа — regex в pattern_regex."),
+                ("arena_points", "Очки арены",
+                 r"⭐️?\s*Очк[а-я]+\s+арены\s*:\s*([+-]?\d+)",
+                 "Очки за бой на арене. Одиночная группа."),
+                ("map", "Карты болота",
+                 r"🗺\s*:?\s*\+?([+-]?\d+)\s*Карт[а-я]*\s+болота|🗺\s*Карт[а-я]*\s+болота\s*:\s*\+?([+-]?\d+)",
+                 "Карты болота (инвентарь). Два варианта формата числа (до/после слова). Одиночная группа."),
+                ("seed", "Семена огорода",
+                 "<emoji> Семена <название>: +N",
+                 "Семена 6 видов. Тип определяется по эмодзи. Regex в loot_items.item_regex."),
+                ("craft_piece", "Кусочек крафта",
+                 "<emoji> Кусочек: +N",
+                 "Кусочки крафта 6 видов. Тип по эмодзи. Regex в loot_items.item_regex."),
+                ("equipment_part", "Кусочки снаряжения",
+                 "<emoji> Кусочков <название>: +N",
+                 "Снаряж. кусочки 4 видов. Тип по эмодзи + слову. Regex в loot_items.item_regex."),
+            ]
+            for gkey, gname, gregex, gdesc in loot_groups_seed:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO loot_groups (group_key, name, pattern_regex, description) VALUES (?, ?, ?, ?)",
+                    (gkey, gname, gregex, gdesc)
+                )
+
+            # Получаем id групп для привязки предметов
+            async with conn.execute("SELECT id, group_key FROM loot_groups") as lg_cursor:
+                group_id_map = {row["group_key"]: row["id"] for row in await lg_cursor.fetchall()}
+
+            # item_regex — полный рабочий regex строки предмета, группа 1 = число.
+            # (group_key, emoji, db_column, item_name, item_regex)
+            loot_items_seed = [
+                # Семена (6 видов)
+                ("seed", "🍭", "seed_lollipop", "леденцы", r"🍭\s*Семен[а-я]+\s+леденцов?\s*:\s*([+-]?\d+)"),
+                ("seed", "💊", "seed_bandages", "аптечки", r"💊\s*Семен[а-я]+\s+аптечек\s*:\s*([+-]?\d+)"),
+                ("seed", "🧿", "seed_tape", "изолента", r"🧿\s*Семен[а-я]+\s+(?:изолент|изоленты)\s*:\s*([+-]?\d+)"),
+                ("seed", "💠", "seed_gems", "жабогемы", r"💠\s*Семен[а-я]+\s+(?:жабогем|жабогемов)\s*:\s*([+-]?\d+)"),
+                ("seed", "🔋", "seed_exp_capsule", "капсулы опыта", r"🔋\s*Семен[а-я]+\s+(?:капсул[а-я]+ опыта|капсулы опыта)\s*:\s*([+-]?\d+)"),
+                ("seed", "🍬", "seed_candies", "конфетки", r"🍬\s*Семен[а-я]+\s+конфеток?\s*:\s*([+-]?\d+)"),
+                # Кусочки крафта (6 видов) — эмодзи идентифицирует тип
+                ("craft_piece", "🧩", "cr_puzzle", "пазл", r"🧩\s*Кусочек\s*:\s*([+-]?\d+)"),
+                ("craft_piece", "🔗", "cr_link", "цепь", r"🔗\s*Кусочек\s*:\s*([+-]?\d+)"),
+                ("craft_piece", "🪨", "cr_stone", "камень", r"🪨\s*Кусочек\s*:\s*([+-]?\d+)"),
+                ("craft_piece", "🎭", "cr_mask", "маска", r"🎭\s*Кусочек\s*:\s*([+-]?\d+)"),
+                ("craft_piece", "📃", "cr_paper", "бумага", r"📃\s*Кусочек\s*:\s*([+-]?\d+)"),
+                ("craft_piece", "⚡", "cr_lightning", "молния", r"⚡️?\s*Кусочек\s*:\s*([+-]?\d+)"),
+                # Кусочки снаряжения (4 вида)
+                ("equipment_part", "⚙️", "eq_parts_weapon", "оружейные", r"⚙️?\s*Оружейн[а-я]+\s+кусочк[а-я]+\s*:\s*([+-]?\d+)"),
+                ("equipment_part", "🌿", "eq_parts_algae", "водорослей", r"🌿\s*Кусочк[а-я]+\s+водорослей\s*:\s*([+-]?\d+)"),
+                ("equipment_part", "🥬", "eq_parts_lily", "кувшинки", r"🥬\s*Кусочк[а-я]+\s+кувшинк[а-я]+\s*:\s*([+-]?\d+)"),
+                ("equipment_part", "🦴", "eq_parts_beak", "клюва цапли", r"🦴\s*Кусочк[а-я]+(?:\s+клюва)?\s+цапли\s*:\s*([+-]?\d+)"),
+            ]
+            for gkey, emoji, db_col, item_name, item_regex in loot_items_seed:
+                gid = group_id_map.get(gkey)
+                if gid is not None:
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO loot_items (group_id, emoji, db_column, item_name, item_regex) VALUES (?, ?, ?, ?, ?)",
+                        (gid, emoji, db_col, item_name, item_regex)
+                    )
             await conn.commit()
 
             # Обеспечиваем наличие команды 'inventory' в commands_registry
@@ -1288,7 +1463,9 @@ class DBManager:
                     mood TEXT,
                     wins INTEGER,
                     losses INTEGER,
+                    draws INTEGER DEFAULT 0,
                     arenas INTEGER,
+                    arena_points INTEGER DEFAULT 0,
                     inv_lollipop TEXT,
                     inv_bandages TEXT,
                     inv_beer TEXT,
@@ -1335,7 +1512,13 @@ class DBManager:
                     gang_pendant TEXT,
                     gang_pendant_duration TEXT,
                     gang_party TEXT,
-                    feed_loot TEXT
+                    feed_loot TEXT,
+                    seed_lollipop INTEGER DEFAULT 0,
+                    seed_bandages INTEGER DEFAULT 0,
+                    seed_gems INTEGER DEFAULT 0,
+                    seed_exp_capsule INTEGER DEFAULT 0,
+                    seed_tape INTEGER DEFAULT 0,
+                    seed_candies INTEGER DEFAULT 0
                 );
             """)
             # Таблица аудита дельт — логирование инкрементов/декрементов (additive-парсеры)
@@ -1370,7 +1553,9 @@ class DBManager:
                 ("mood", "TEXT"),
                 ("wins", "INTEGER"),
                 ("losses", "INTEGER"),
+                ("draws", "INTEGER DEFAULT 0"),
                 ("arenas", "INTEGER"),
+                ("arena_points", "INTEGER DEFAULT 0"),
                 ("inv_lollipop", "TEXT"),
                 ("inv_bandages", "TEXT"),
                 ("inv_beer", "TEXT"),
@@ -1424,7 +1609,15 @@ class DBManager:
                 ("daily_reward", "TEXT"),
                 ("daily_bonus_tasks", "TEXT"),
                 ("daily_bonus_reward", "TEXT"),
-                ("feed_loot", "TEXT")
+                ("feed_loot", "TEXT"),
+                # Семена огорода — копятся через _deltas (additive-парсеры лута):
+                # Покормить жабёнка, На Арену, Подземелье, Получить награду и т.д.
+                ("seed_lollipop", "INTEGER DEFAULT 0"),
+                ("seed_bandages", "INTEGER DEFAULT 0"),
+                ("seed_gems", "INTEGER DEFAULT 0"),
+                ("seed_exp_capsule", "INTEGER DEFAULT 0"),
+                ("seed_tape", "INTEGER DEFAULT 0"),
+                ("seed_candies", "INTEGER DEFAULT 0")
             ]
             async with r_conn.execute("PRAGMA table_info(toad_states)") as cursor:
                 existing_cols = {r["name"] for r in await cursor.fetchall()}
@@ -1577,6 +1770,14 @@ class DBManager:
                 ("equipment", "Мое снаряжение", r"^мое\s+снаряжение$", 0),
                 ("dailies", "Дейлики", r"^(дейлики|ежедневные\s+задания)$", 0),
             ]
+
+            # Push-action типы — не являются командами пользователя, триггерятся только ответами Жабабота.
+            # trigger_regex пустой, т.к. пользователь эти команды не отправляет.
+            push_action_commands = [
+                ("arena_battle", "Бой арены", "", 0),
+                ("clan_war", "Клановая война", "", 0),
+                ("gift_received", "Получение", "", 0),
+            ]
             
             
             # Статический список импортированных команд из Excel (разовый импорт)
@@ -1655,7 +1856,7 @@ class DBManager:
             ]
                 
             # Записываем все команды в БД
-            all_commands = default_commands + excel_commands
+            all_commands = default_commands + excel_commands + push_action_commands
             for action, name, trigger, cd in all_commands:
                 await conn.execute("""
                     INSERT OR REPLACE INTO commands_registry (action_type, name, trigger_regex, default_cooldown)
@@ -1681,6 +1882,33 @@ class DBManager:
             # Добавим снаряжение принудительно, если не пересоздаются
             default_responses.append(
                 ("equipment", "Разбор снаряжения", "success", r"Ближний бой:[\s\S]*?(?:Дальний бой|Наголовник|Нагрудник|Налапники)", json.dumps({}))
+            )
+            # --- Push-события Жабабота (резолв получателя по тегу [id|], не через pending-очередь) ---
+            # db_updates пустой {} — реальный парсинг делает Python-парсер (как у «Моя жаба»).
+            # Regex нужен только для match_bot_response, чтобы определить action_type.
+            default_responses.append(
+                ("arena_battle", "Победа на арене", "success",
+                 r"с победой,\s*\[id\d+\|[^\]]+\][\s\S]*?ты\s+получил", json.dumps({}))
+            )
+            default_responses.append(
+                ("arena_battle", "Поражение на арене", "success",
+                 r"не повезло,\s*\[id\d+\|[^\]]+\][\s\S]*?проиграл", json.dumps({}))
+            )
+            default_responses.append(
+                ("arena_battle", "Ничья на арене", "success",
+                 r"повезло-повезло!.*?справедливая ничья", json.dumps({}))
+            )
+            default_responses.append(
+                ("clan_war", "Победа в клановой войне", "success",
+                 r"вы\s+одержали\s+победу!\s*🔥", json.dumps({}))
+            )
+            default_responses.append(
+                ("clan_war", "Поражение в клановой войне", "success",
+                 r"вы\s+проиграли\s+в\s+клановой\s+войне", json.dumps({}))
+            )
+            default_responses.append(
+                ("gift_received", "Получение предмета/перевод", "success",
+                 r"получил\s*:", json.dumps({}))
             )
             for action, name, rtype, regex, updates in default_responses:
                 await conn.execute("""
@@ -2202,10 +2430,26 @@ class DBManager:
                 rows = await cursor.fetchall()
                 
                 commands_map = {}
+
+                # Собираем ID команд для проверки наличия regex-правил
+                cmd_ids = [row["command_id"] for row in rows]
+                regex_counts = {}
+                if cmd_ids:
+                    placeholders = ",".join("?" * len(cmd_ids))
+                    async with conn.execute(f"""
+                        SELECT sc.command_id, COUNT(rr.id) as cnt
+                        FROM recognition_subcommands sc
+                        LEFT JOIN recognition_rules rr ON rr.subcommand_id = sc.id
+                        WHERE sc.command_id IN ({placeholders})
+                        GROUP BY sc.command_id
+                    """, cmd_ids) as rc_cursor:
+                        async for rc_row in rc_cursor:
+                            regex_counts[rc_row["command_id"]] = rc_row["cnt"]
+
                 for row in rows:
                     cmd_id = row["command_id"]
                     cmd_text = row["command"]
-                    
+
                     if cmd_id not in commands_map:
                         commands_map[cmd_id] = {
                             "id": cmd_id,
@@ -2214,6 +2458,7 @@ class DBManager:
                             "in_recognition": row["in_recognition"],
                             "parser_type": row["parser_type"] or "control",
                             "description": row["description"] or "",
+                            "has_regex": (regex_counts.get(cmd_id, 0)) > 0,
                             "variations": []
                         }
                         
@@ -2353,6 +2598,7 @@ class DBManager:
             "spouse_1", "spouse_2", "robbery_info", "map_info", "location_name",
             "name", "level", "satiety_cur", "satiety_max", "status", "state",
             "bugs", "class", "mood", "wins", "losses", "arenas",
+    "draws", "arena_points",
             "inv_lollipop", "inv_bandages", "inv_beer", "inv_dragonfly",
             "inv_map", "inv_tape", "inv_gang_frogs", "inv_exp_capsule",
             "eq_pass", "eq_lockpick", "eq_battery",
@@ -2366,7 +2612,10 @@ class DBManager:
             "gang_damage", "gang_chance", "gang_pendant", "gang_pendant_duration", "gang_party",
             "daily_status", "reserve_days", "daily_completed", "daily_tasks",
             "daily_reward", "daily_bonus_tasks", "daily_bonus_reward",
-            "feed_loot"
+            "feed_loot",
+            # Семена огорода — копятся через _deltas (additive-парсеры лута)
+            "seed_lollipop", "seed_bandages", "seed_gems",
+            "seed_exp_capsule", "seed_tape", "seed_candies"
         }
 
         # Фильтруем все категории по белому списку колонок
@@ -2560,6 +2809,50 @@ class DBManager:
                     }
                     filtered_fields = {k: v for k, v in parsed_data.items() if k in allowed_columns}
                     await self.update_account_fields(player_vk_id, filtered_fields)
+                return "Да"
+            return "Нет"
+
+        # ── Push-события Жабабота (арена / клан / получение) ──
+        # В monitor-режиме резолв получателя по тегу/fwd недоступен (нет этих данных),
+        # поэтому парсер вызывается без target_name: определяем только тип сообщения
+        # и сохраняем общую часть, если задан player_vk_id.
+        if command_name == "Бой арены":
+            from src.utils.toad_info_parser import parse_arena_battle
+            parsed_data = parse_arena_battle(text)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.save_toad_state(player_vk_id, parsed_data)
+                return "Да"
+            return "Нет"
+
+        if command_name == "Клановая война":
+            from src.utils.toad_info_parser import parse_clan_war
+            # В monitor-режиме имени нет — общий дроп применяется к player_vk_id
+            acc_name = None
+            if player_vk_id is not None:
+                async with conn.execute("SELECT name FROM accounts WHERE vk_id = ?", (player_vk_id,)) as acc_cursor:
+                    acc_row = await acc_cursor.fetchone()
+                    if acc_row:
+                        acc_name = acc_row["name"]
+            parsed_data = parse_clan_war(text, target_vk_id=player_vk_id, target_name=acc_name)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.save_toad_state(player_vk_id, parsed_data)
+                return "Да"
+            return "Нет"
+
+        if command_name == "Получение":
+            from src.utils.toad_info_parser import parse_gift_received
+            acc_name = None
+            if player_vk_id is not None:
+                async with conn.execute("SELECT name FROM accounts WHERE vk_id = ?", (player_vk_id,)) as acc_cursor:
+                    acc_row = await acc_cursor.fetchone()
+                    if acc_row:
+                        acc_name = acc_row["name"]
+            parsed_data = parse_gift_received(text, target_name=acc_name)
+            if parsed_data is not None:
+                if player_vk_id is not None:
+                    await self.save_toad_state(player_vk_id, parsed_data)
                 return "Да"
             return "Нет"
 
@@ -2853,6 +3146,134 @@ class DBManager:
                             "variable_name": row["variable_name"]
                         })
                 return list(subcommands_map.values())
+
+    # ── API БД «Выпадающий лут» (loot_groups + loot_items + command_loot_config) ──
+
+    async def get_loot_groups(self) -> List[Dict[str, Any]]:
+        """Возвращает все группы лута с вложенными предметами."""
+        async with self._connect() as conn:
+            # Группы
+            async with conn.execute("""
+                SELECT id, group_key, name, pattern_regex, description
+                FROM loot_groups ORDER BY id
+            """) as cursor:
+                groups = [dict(r) for r in await cursor.fetchall()]
+            if not groups:
+                return []
+            # Предметы
+            async with conn.execute("""
+                SELECT id, group_id, emoji, db_column, item_name, item_regex
+                FROM loot_items ORDER BY id
+            """) as cursor:
+                items = [dict(r) for r in await cursor.fetchall()]
+            items_by_group: Dict[int, List[Dict[str, Any]]] = {}
+            for it in items:
+                items_by_group.setdefault(it["group_id"], []).append(it)
+            for g in groups:
+                g["items"] = items_by_group.get(g["id"], [])
+            return groups
+
+    async def create_loot_group(self, group_key: str, name: str,
+                                pattern_regex: str, description: str = "") -> int:
+        async with self._connect() as conn:
+            cur = await conn.execute(
+                "INSERT INTO loot_groups (group_key, name, pattern_regex, description) VALUES (?, ?, ?, ?)",
+                (group_key, name, pattern_regex, description)
+            )
+            await conn.commit()
+            return cur.lastrowid
+
+    async def update_loot_group(self, group_id: int, name: Optional[str] = None,
+                                pattern_regex: Optional[str] = None,
+                                description: Optional[str] = None) -> None:
+        async with self._connect() as conn:
+            if name is not None:
+                await conn.execute("UPDATE loot_groups SET name = ? WHERE id = ?", (name, group_id))
+            if pattern_regex is not None:
+                await conn.execute("UPDATE loot_groups SET pattern_regex = ? WHERE id = ?", (pattern_regex, group_id))
+            if description is not None:
+                await conn.execute("UPDATE loot_groups SET description = ? WHERE id = ?", (description, group_id))
+            await conn.commit()
+
+    async def delete_loot_group(self, group_id: int) -> None:
+        async with self._connect() as conn:
+            await conn.execute("DELETE FROM loot_groups WHERE id = ?", (group_id,))
+            await conn.commit()
+
+    async def create_loot_item(self, group_id: int, emoji: str, db_column: str,
+                               item_name: str = "", item_regex: str = "") -> int:
+        async with self._connect() as conn:
+            cur = await conn.execute(
+                "INSERT INTO loot_items (group_id, emoji, db_column, item_name, item_regex) VALUES (?, ?, ?, ?, ?)",
+                (group_id, emoji, db_column, item_name, item_regex)
+            )
+            await conn.commit()
+            return cur.lastrowid
+
+    async def update_loot_item(self, item_id: int, emoji: Optional[str] = None,
+                               db_column: Optional[str] = None, item_name: Optional[str] = None,
+                               item_regex: Optional[str] = None) -> None:
+        async with self._connect() as conn:
+            if emoji is not None:
+                await conn.execute("UPDATE loot_items SET emoji = ? WHERE id = ?", (emoji, item_id))
+            if db_column is not None:
+                await conn.execute("UPDATE loot_items SET db_column = ? WHERE id = ?", (db_column, item_id))
+            if item_name is not None:
+                await conn.execute("UPDATE loot_items SET item_name = ? WHERE id = ?", (item_name, item_id))
+            if item_regex is not None:
+                await conn.execute("UPDATE loot_items SET item_regex = ? WHERE id = ?", (item_regex, item_id))
+            await conn.commit()
+
+    async def delete_loot_item(self, item_id: int) -> None:
+        async with self._connect() as conn:
+            await conn.execute("DELETE FROM loot_items WHERE id = ?", (item_id,))
+            await conn.commit()
+
+    async def get_command_loot_config(self, command_id: int) -> List[Dict[str, Any]]:
+        """Возвращает группы лута, привязанные к команде, с настройками."""
+        async with self._connect() as conn:
+            async with conn.execute("""
+                SELECT clc.id, clc.command_id, clc.group_id, clc.section_header, clc.recipient_mode,
+                       lg.group_key, lg.name as group_name, lg.pattern_regex, lg.description
+                FROM command_loot_config clc
+                JOIN loot_groups lg ON clc.group_id = lg.id
+                WHERE clc.command_id = ?
+                ORDER BY clc.id
+            """, (command_id,)) as cursor:
+                return [dict(r) for r in await cursor.fetchall()]
+
+    async def add_command_loot_config(self, command_id: int, group_id: int,
+                                      section_header: str = "Ты получил",
+                                      recipient_mode: str = "pending") -> bool:
+        """Привязывает группу лута к команде. True — добавлено, False — уже было."""
+        try:
+            async with self._connect() as conn:
+                await conn.execute(
+                    "INSERT INTO command_loot_config (command_id, group_id, section_header, recipient_mode) VALUES (?, ?, ?, ?)",
+                    (command_id, group_id, section_header, recipient_mode)
+                )
+                await conn.commit()
+                return True
+        except Exception:
+            return False
+
+    async def update_command_loot_config(self, config_id: int,
+                                         section_header: Optional[str] = None,
+                                         recipient_mode: Optional[str] = None) -> None:
+        async with self._connect() as conn:
+            if section_header is not None:
+                await conn.execute("UPDATE command_loot_config SET section_header = ? WHERE id = ?", (section_header, config_id))
+            if recipient_mode is not None:
+                await conn.execute("UPDATE command_loot_config SET recipient_mode = ? WHERE id = ?", (recipient_mode, config_id))
+            await conn.commit()
+
+    async def remove_command_loot_config(self, command_id: int, group_id: int) -> None:
+        async with self._connect() as conn:
+            await conn.execute(
+                "DELETE FROM command_loot_config WHERE command_id = ? AND group_id = ?",
+                (command_id, group_id)
+            )
+            await conn.commit()
 
     async def get_unrecognized_monitor_variations(self) -> List[Dict[str, Any]]:
         """

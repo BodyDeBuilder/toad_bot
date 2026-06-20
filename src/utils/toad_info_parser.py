@@ -1,5 +1,8 @@
 import re
+import logging
 from typing import Optional, Dict, Any
+
+logger = logging.getLogger("toadbot.utils.toad_info_parser")
 
 # Правило: если в ответе игры написано "1ч 29м", мы интерпретируем это как "1ч 29м 59с".
 # То есть добавляем 59 секунд к каждому распознанному значению (погрешность вверх —
@@ -1130,4 +1133,332 @@ def parse_gang(text: str) -> Optional[Dict[str, Any]]:
             result["gang_party"] = party_match.group(1).strip()
 
     return result
+
+
+# =============================================================================
+# Push-парсеры: разбор ответов Жабабота, инициируемых ботом по расписанию
+# (бои арены, клановые войны, получения/подарки). Резолв получателя выполняет
+# AccountResolver (по тегу [id|] / fwd / имени); парсер только извлекает _deltas.
+# =============================================================================
+
+# Карта лут-строк → колонка toad_states. Порядок важен (проверяем специфичные форматы
+# раньше общих). Каждый элемент: (regex, db_column).
+# Regex привязывается к началу строки (в контексте построчного разбора), число — со знаком.
+#
+# Это DEFAULT/фоллбэк-набор. При старте KnowledgeBase.load_from_db() вызывает
+# load_loot_rules_from_db(), которая перезаписывает этот список данными из таблиц
+# loot_groups + loot_items (если они не пусты). Если БД пуста — остаётся этот набор.
+_LOOT_LINE_RULES = [
+    # --- Букашки / арена-очки / сытость ---
+    (re.compile(r"🐞\s*Букашки?\s*:\s*([+-]?\d+)", re.IGNORECASE), "bugs"),
+    (re.compile(r"⭐️?\s*Очк[а-я]+\s+арены\s*:\s*([+-]?\d+)", re.IGNORECASE), "arena_points"),
+    # --- Семена огорода (6 видов) ---
+    (re.compile(r"🍭\s*Семен[а-я]+\s+леденцов?\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_lollipop"),
+    (re.compile(r"💊\s*Семен[а-я]+\s+аптечек\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_bandages"),
+    (re.compile(r"🧿\s*Семен[а-я]+\s+(?:изолент|изоленты)\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_tape"),
+    (re.compile(r"💠\s*Семен[а-я]+\s+(?:жабогем|жабогемов)\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_gems"),
+    (re.compile(r"🔋\s*Семен[а-я]+\s+(?:капсул[а-я]+ опыта|капсулы опыта)\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_exp_capsule"),
+    (re.compile(r"🍬\s*Семен[а-я]+\s+конфеток?\s*:\s*([+-]?\d+)", re.IGNORECASE), "seed_candies"),
+    # --- Крафт-кусочки (6 видов): «<emoji> Кусочек: +N» ---
+    (re.compile(r"🧩\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_puzzle"),
+    (re.compile(r"🔗\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_link"),
+    (re.compile(r"🪨\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_stone"),
+    (re.compile(r"🎭\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_mask"),
+    (re.compile(r"📃\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_paper"),
+    (re.compile(r"⚡️?\s*Кусочек\s*:\s*([+-]?\d+)", re.IGNORECASE), "cr_lightning"),
+    # --- Снаряжёнческие кусочки (4 вида): «<emoji> Кусочков <X>: +N» ---
+    (re.compile(r"⚙️?\s*Оружейн[a-я]+\s+кусочк[a-я]+\s*:\s*([+-]?\d+)", re.IGNORECASE), "eq_parts_weapon"),
+    (re.compile(r"🌿\s*Кусочк[a-я]+\s+водорослей\s*:\s*([+-]?\d+)", re.IGNORECASE), "eq_parts_algae"),
+    (re.compile(r"🥬\s*Кусочк[a-я]+\s+кувшинк[a-я]+\s*:\s*([+-]?\d+)", re.IGNORECASE), "eq_parts_lily"),
+    (re.compile(r"🦴\s*Кусочк[a-я]+(?:\s+клюва)?\s+цапли\s*:\s*([+-]?\d+)", re.IGNORECASE), "eq_parts_beak"),
+    # --- Карты болота (инвентарь, не делта по счёту, но для простоты через delta) ---
+    (re.compile(r"🗺\s*:?\s*\+?([+-]?\d+)\s*Карт[а-я]*\s+болота", re.IGNORECASE), "inv_map"),
+    (re.compile(r"🗺\s*Карт[а-я]*\s+болота\s*:\s*\+?([+-]?\d+)", re.IGNORECASE), "inv_map"),
+]
+
+
+async def load_loot_rules_from_db(db) -> None:
+    """Загружает правила лута из таблиц loot_groups + loot_items в _LOOT_LINE_RULES.
+
+    Вызывается из KnowledgeBase.load_from_db() при старте. Если в БД нет данных —
+    оставляет дефолтный hardcoded-набор (фоллбэк для обратной совместимости).
+
+    Логика построения _LOOT_LINE_RULES:
+    - Для одиночных групп (без loot_items): берём pattern_regex группы как единое правило,
+      колонка = group_key (bugs, arena_points) или «inv_map» для map (особый случай).
+    - Для групп с предметами: берём item_regex каждого предмета → (regex, db_column).
+    - Группа «map» имеет regex с альтернативой (A|B) — разбиваем на 2 правила.
+    """
+    global _LOOT_LINE_RULES
+    try:
+        groups = await db.get_loot_groups()
+    except Exception as e:
+        logger.warning(f"load_loot_rules_from_db: не удалось загрузить группы лута ({e}); оставляю дефолтный набор")
+        return
+
+    if not groups:
+        return  # БД пуста — оставляем hardcoded-фоллбэк
+
+    new_rules: list = []
+    # Карта group_key → колонка по умолчанию для одиночных групп
+    single_group_column = {"bugs": "bugs", "arena_points": "arena_points", "map": "inv_map"}
+
+    for g in groups:
+        items = g.get("items") or []
+        gkey = g.get("group_key", "")
+        if items:
+            # Группа с предметами: каждое item_regex → отдельное правило
+            for it in items:
+                item_regex = it.get("item_regex") or ""
+                db_col = it.get("db_column") or ""
+                if not item_regex or not db_col:
+                    continue
+                try:
+                    compiled = re.compile(item_regex, re.IGNORECASE)
+                    new_rules.append((compiled, db_col))
+                except re.error as ex:
+                    logger.warning(f"load_loot_rules_from_db: битый regex предмета {it.get('emoji')}: {ex}")
+        else:
+            # Одиночная группа: pattern_regex целиком
+            pattern = g.get("pattern_regex") or ""
+            db_col = single_group_column.get(gkey, gkey)
+            if not pattern:
+                continue
+            # Группа «map» имеет альтернативу (A|B) — разбиваем на 2 правила
+            if gkey == "map" and "|" in pattern:
+                parts = pattern.split("|", 1)
+                for part in parts:
+                    try:
+                        new_rules.append((re.compile(part.strip(), re.IGNORECASE), db_col))
+                    except re.error as ex:
+                        logger.warning(f"load_loot_rules_from_db: битый regex map-части: {ex}")
+            else:
+                try:
+                    new_rules.append((re.compile(pattern, re.IGNORECASE), db_col))
+                except re.error as ex:
+                    logger.warning(f"load_loot_rules_from_db: битый regex группы {gkey}: {ex}")
+
+    if new_rules:
+        _LOOT_LINE_RULES = new_rules
+        logger.info(f"load_loot_rules_from_db: загружено {len(new_rules)} правил лута из БД")
+    else:
+        logger.warning("load_loot_rules_from_db: БД лута не дала ни одного правила; оставляю дефолтный набор")
+
+
+def parse_loot_line(line: str) -> Optional[Dict[str, int]]:
+    """Разбирает строку лута вида «🐞 Букашки: +165» → {col: delta}.
+
+    Возвращает None, если строка не распознана как лут.
+    Возвращает словарь {column_name: delta_int} — может содержать 1 запись
+    (одна строка = один предмет).
+    """
+    line_clean = line.strip()
+    if not line_clean:
+        return None
+    for pattern, col in _LOOT_LINE_RULES:
+        m = pattern.search(line_clean)
+        if m:
+            try:
+                delta = int(m.group(1))
+                return {col: delta}
+            except (ValueError, IndexError):
+                continue
+    return None
+
+
+def _parse_loot_section(section_text: str) -> Dict[str, int]:
+    """Разбирает многострочную секцию лута и суммирует дельты по колонкам."""
+    deltas: Dict[str, int] = {}
+    for line in section_text.split("\n"):
+        parsed = parse_loot_line(line)
+        if parsed:
+            for col, delta in parsed.items():
+                deltas[col] = deltas.get(col, 0) + delta
+    return deltas
+
+
+def _extract_loot_section_after(text: str, header: str) -> Optional[str]:
+    """Извлекает секцию лута после заголовка header (до пустой строки / конца).
+
+    header — подстрока, после которой (на следующей строке) идёт лут.
+    """
+    low = text.lower()
+    idx = low.find(header.lower())
+    if idx < 0:
+        return None
+    # Берём всё после заголовка до конца, затем режем по двойному переводу строки
+    after = text[idx + len(header):]
+    # Убираем начальные переводы
+    after = after.lstrip("\n")
+    # Секция заканчивается на пустой строке или при «Статистика боя:» / «[Кнопка:»
+    end_markers = ["\n\n", "Статистика боя", "[Кнопка:", "Надо быть более"]
+    end_idx = len(after)
+    for marker in end_markers:
+        mi = after.find(marker)
+        if 0 <= mi < end_idx:
+            end_idx = mi
+    return after[:end_idx]
+
+
+# Regex для захвата заголовка секции «получил:». Допускает перед именем тег ВК:
+#   [id12345|Петя] получил:   ← имя берётся из тега
+#   Петя получил:             ← bare-имя
+# Группа name — чистое имя (из тега если есть, иначе bare).
+# Группа body — текст секции лута до следующего заголовка / пустой строки.
+_RECEIVED_SECTION_RE = re.compile(
+    r"(?:^|\n)\s*(?:\[[a-zA-Z0-9_\-]+\|(?P<tag_name>[^\]]+)\]|(?P<bare_name>[А-ЯA-Za-zЁ][А-Яа-яA-Za-zёЁ0-9 ]{1,40}?))"
+    r"\s+получил\s*:\s*\n(?P<body>[\s\S]*?)"
+    r"(?=\n\s*(?:\[[a-zA-Z0-9_\-]+\|[^\]]+\]|[А-ЯA-Za-zЁ][А-Яа-яA-Za-zёЁ0-9 ]{1,40}?)\s+получил\s*:|\nСтатистика боя|\n\n|\Z)"
+)
+
+
+def _extract_received_sections(text: str) -> list:
+    """Находит все секции «<X> получил: ...» (с тегом или без) и возвращает список
+    кортежей ``(clean_name, body)``.
+
+    ``clean_name`` — нормализованное имя получателя:
+      - для ``[id12345|Петя] получил:`` — «Петя» (из тега),
+      - для ``Петя получил:`` — «Петя» (bare),
+      - для общих секций «Каждый из вас получил:» / «Ты получил:» — НЕ захватывается
+        этим regex (они обрабатываются отдельно через ``_extract_loot_section_after``).
+
+    Returns:
+        Список ``(clean_name_lower, body)``. ``clean_name_lower`` — имя после
+        ``clean_member_name`` в нижнем регистре (для сравнения с target).
+    """
+    sections = []
+    for m in _RECEIVED_SECTION_RE.finditer(text):
+        name = m.group("tag_name") or m.group("bare_name") or ""
+        clean = clean_member_name(name.strip())
+        sections.append((clean.lower(), m.group("body")))
+    return sections
+
+
+def parse_arena_battle(text: str) -> Optional[Dict[str, Any]]:
+    """Парсит push-результат PvP-боя на арене (победа/поражение/ничья).
+
+    Возвращает dict с _deltas: {wins/losses/draws: 1} + лут из «Ты получил:».
+    None — если текст не является результатом боя арены.
+    """
+    text_clean = text.replace("\r", "").strip()
+    low = text_clean.lower()
+
+    # Определяем исход по характерным фразам
+    is_win = bool(re.search(r"с\s+победой,?\s*\[id\d+\|", low))
+    is_loss = bool(re.search(r"не\s+повезло,?\s*\[id\d+\|[\s\S]*?проиграл", low))
+    is_draw = bool(re.search(r"повезло-повезло!.*?справедливая\s+ничья", low))
+
+    if not (is_win or is_loss or is_draw):
+        return None
+
+    result: Dict[str, Any] = {"_deltas": {}}
+
+    if is_win:
+        result["_deltas"]["wins"] = 1
+    elif is_loss:
+        result["_deltas"]["losses"] = 1
+    else:  # draw
+        result["_deltas"]["draws"] = 1
+
+    # Лут из секции «Ты получил:» (при победе/поражении есть; при ничье — нет)
+    if is_win or is_loss:
+        loot = _extract_loot_section_after(text_clean, "Ты получил")
+        if loot:
+            deltas = _parse_loot_section(loot)
+            result["_deltas"].update(deltas)
+
+    result["_command"] = "Бой арены"
+    result["_raw_text"] = text_clean[:2000]
+    return result
+
+
+def parse_clan_war(text: str, target_vk_id: Optional[int] = None,
+                   target_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Парсит push-результат клановой войны.
+
+    Общий дроп («Каждый из вас получил:») начисляется ВСЕМ резолвленным аккаунтам —
+    caller вызывает парсер per-аккаунт, поэтому общий дроп добавляется всегда.
+    Индивидуальный дроп («<Имя> получил:») — только если target_name совпадает.
+
+    Args:
+        text: текст ответа Жабабота.
+        target_vk_id: vk_id аккаунта, для которого считаем (для аудита; опц.).
+        target_name: нормализованное имя жабы аккаунта, чтобы сопоставить
+            индивидуальную секцию «<Имя> получил:» (опц.).
+
+    Returns:
+        dict с _deltas или None, если текст не клановая война.
+    """
+    text_clean = text.replace("\r", "").strip()
+    low = text_clean.lower()
+
+    is_win = "одержали победу" in low and "🔥" in text_clean
+    is_loss = "вы проиграли в клановой войне" in low
+    if not (is_win or is_loss):
+        return None
+
+    result: Dict[str, Any] = {"_deltas": {}}
+
+    # Общий дроп — каждому участнику (при победе)
+    if is_win:
+        common_loot = _extract_loot_section_after(text_clean, "Каждый из вас получил")
+        if common_loot:
+            result["_deltas"].update(_parse_loot_section(common_loot))
+
+    # Индивидуальный дроп по имени — ищем секцию «<Имя> получил:» для target_name
+    if target_name:
+        clean_target = clean_member_name(target_name).lower()
+        for section_name, body in _extract_received_sections(text_clean):
+            if section_name == clean_target:
+                result["_deltas"].update(_parse_loot_section(body))
+
+    result["_command"] = "Клановая война"
+    result["_raw_text"] = text_clean[:2000]
+    return result
+
+
+def parse_gift_received(text: str, target_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Парсит push-сообщение о получении/переводе («X получил: ...»).
+
+    Если target_name задан — извлекает лут ТОЛЬКО из секции этого имени.
+    Если target_name не задан (например, одиночное «Ты получил:») — берёт первую секцию.
+
+    Returns:
+        dict с _deltas или None, если текст не является получением.
+    """
+    text_clean = text.replace("\r", "").strip()
+
+    # Должна быть хотя бы одна секция «получил:»
+    if "получил" not in text_clean.lower():
+        return None
+
+    result: Dict[str, Any] = {"_deltas": {}}
+
+    sections = _extract_received_sections(text_clean)
+
+    if target_name:
+        clean_target = clean_member_name(target_name).lower()
+        # Ищем секцию конкретно для target_name (по имени в теге или bare)
+        for section_name, body in sections:
+            if section_name == clean_target:
+                result["_deltas"].update(_parse_loot_section(body))
+                break
+    else:
+        # Нет конкретного имени — берём первую секцию «<X> получил:»
+        if sections:
+            result["_deltas"].update(_parse_loot_section(sections[0][1]))
+        else:
+            # Пробуем «Ты получил:» как фоллбэк (безымянная секция)
+            loot = _extract_loot_section_after(text_clean, "Ты получил")
+            if loot:
+                result["_deltas"].update(_parse_loot_section(loot))
+
+    # Если ничего не нарезолвилось — это не получение
+    if not result["_deltas"]:
+        return None
+
+    result["_command"] = "Получение"
+    result["_raw_text"] = text_clean[:2000]
+    return result
+
 

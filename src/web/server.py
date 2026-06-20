@@ -626,6 +626,168 @@ def create_app(db: DBManager, client_manager: ClientManager) -> FastAPI:
             logger.error(f"Ошибка получения правил распознавания команды ID {command_id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Ошибка базы данных")
 
+    # ── API БД «Выпадающий лут» ──
+
+    @app.get("/api/loot/groups")
+    async def get_loot_groups_route(username: str = Depends(authenticate)):
+        """Список всех групп лута с вложенными предметами"""
+        try:
+            return await db.get_loot_groups()
+        except Exception as e:
+            logger.error(f"Ошибка получения групп лута: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.post("/api/loot/groups")
+    async def create_loot_group_route(payload: dict, username: str = Depends(authenticate)):
+        """Создать новую группу лута"""
+        try:
+            group_key = (payload.get("group_key") or "").strip()
+            name = (payload.get("name") or "").strip()
+            pattern_regex = payload.get("pattern_regex") or ""
+            description = payload.get("description") or ""
+            if not group_key or not name:
+                raise HTTPException(status_code=400, detail="group_key и name обязательны")
+            new_id = await db.create_loot_group(group_key, name, pattern_regex, description)
+            return {"success": True, "id": new_id}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка создания группы лута: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.put("/api/loot/groups/{group_id}")
+    async def update_loot_group_route(group_id: int, payload: dict, username: str = Depends(authenticate)):
+        """Обновить группу лута"""
+        try:
+            await db.update_loot_group(
+                group_id,
+                name=payload.get("name"),
+                pattern_regex=payload.get("pattern_regex"),
+                description=payload.get("description"),
+            )
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка обновления группы лута {group_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.delete("/api/loot/groups/{group_id}")
+    async def delete_loot_group_route(group_id: int, username: str = Depends(authenticate)):
+        """Удалить группу лута (CASCADE → удалятся и предметы)"""
+        try:
+            await db.delete_loot_group(group_id)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка удаления группы лута {group_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.post("/api/loot/items")
+    async def create_loot_item_route(payload: dict, username: str = Depends(authenticate)):
+        """Создать предмет лута"""
+        try:
+            group_id = payload.get("group_id")
+            emoji = (payload.get("emoji") or "").strip()
+            db_column = (payload.get("db_column") or "").strip()
+            item_name = payload.get("item_name") or ""
+            item_regex = payload.get("item_regex") or ""
+            if not group_id or not emoji or not db_column:
+                raise HTTPException(status_code=400, detail="group_id, emoji, db_column обязательны")
+            new_id = await db.create_loot_item(group_id, emoji, db_column, item_name, item_regex)
+            return {"success": True, "id": new_id}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка создания предмета лута: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.put("/api/loot/items/{item_id}")
+    async def update_loot_item_route(item_id: int, payload: dict, username: str = Depends(authenticate)):
+        """Обновить предмет лута"""
+        try:
+            await db.update_loot_item(
+                item_id,
+                emoji=payload.get("emoji"),
+                db_column=payload.get("db_column"),
+                item_name=payload.get("item_name"),
+                item_regex=payload.get("item_regex"),
+            )
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка обновления предмета лута {item_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.delete("/api/loot/items/{item_id}")
+    async def delete_loot_item_route(item_id: int, username: str = Depends(authenticate)):
+        """Удалить предмет лута"""
+        try:
+            await db.delete_loot_item(item_id)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка удаления предмета лута {item_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    # ── API связки «команда → группы лута» (command_loot_config) ──
+
+    @app.get("/api/monitor/commands/{command_id}/loot-config")
+    async def get_command_loot_config_route(command_id: int, username: str = Depends(authenticate)):
+        """Получить группы лута, привязанные к команде"""
+        try:
+            return await db.get_command_loot_config(command_id)
+        except Exception as e:
+            logger.error(f"Ошибка получения loot-config для команды {command_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.post("/api/monitor/commands/{command_id}/loot-config")
+    async def add_command_loot_config_route(command_id: int, payload: dict, username: str = Depends(authenticate)):
+        """Привязать группу лута к команде"""
+        try:
+            group_id = payload.get("group_id")
+            section_header = payload.get("section_header") or "Ты получил"
+            recipient_mode = payload.get("recipient_mode") or "pending"
+            if not group_id:
+                raise HTTPException(status_code=400, detail="group_id обязателен")
+            ok = await db.add_command_loot_config(command_id, group_id, section_header, recipient_mode)
+            if not ok:
+                raise HTTPException(status_code=409, detail="Эта группа уже привязана к команде")
+            return {"success": True}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка привязки loot-config: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.put("/api/monitor/commands/{command_id}/loot-config/{group_id}")
+    async def update_command_loot_config_route(command_id: int, group_id: int, payload: dict, username: str = Depends(authenticate)):
+        """Обновить настройки (section_header, recipient_mode) привязки группы лута к команде"""
+        try:
+            section_header = payload.get("section_header")
+            recipient_mode = payload.get("recipient_mode")
+            # Находим config_id по паре (command_id, group_id)
+            configs = await db.get_command_loot_config(command_id)
+            config_id = None
+            for c in configs:
+                if c.get("group_id") == group_id:
+                    config_id = c.get("id")
+                    break
+            if config_id is None:
+                raise HTTPException(status_code=404, detail="Привязка не найдена")
+            await db.update_command_loot_config(config_id, section_header=section_header, recipient_mode=recipient_mode)
+            return {"success": True}
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка обновления loot-config: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
+    @app.delete("/api/monitor/commands/{command_id}/loot-config/{group_id}")
+    async def remove_command_loot_config_route(command_id: int, group_id: int, username: str = Depends(authenticate)):
+        """Отвязать группу лута от команды"""
+        try:
+            await db.remove_command_loot_config(command_id, group_id)
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Ошибка отвязки loot-config: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+
     @app.post("/api/monitor/test-parse")
     async def test_parse_endpoint(payload: TestParseSchema, username: str = Depends(authenticate)):
         """Тестирование распознавания на переданном тексте"""

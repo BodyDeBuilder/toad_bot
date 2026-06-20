@@ -246,6 +246,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const monitorActionsHeader = document.getElementById('monitor-actions-header');
         const recognitionActionsHeader = document.getElementById('recognition-actions-header');
 
+        // Подвкладки распознавания (Контроль / Простой / Добавочный / Контроль+Лут)
+        document.querySelectorAll('.rec-subtab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const subtab = btn.getAttribute('data-subtab');
+                if (!subtab || subtab === _activeRecSubtab) return;
+                _activeRecSubtab = subtab;
+
+                const subtabColors = {
+                    control: { color: '#7c4dff', bg: 'rgba(124,77,255,0.15)', border: 'rgba(124,77,255,0.4)' },
+                    simple: { color: '#00bfa5', bg: 'rgba(0,191,165,0.15)', border: 'rgba(0,191,165,0.4)' },
+                    additive: { color: '#ff9100', bg: 'rgba(255,145,0,0.15)', border: 'rgba(255,145,0,0.4)' },
+                    hybrid: { color: '#ff9100', bg: 'rgba(255,145,0,0.15)', border: 'rgba(255,145,0,0.4)' },
+                };
+                document.querySelectorAll('.rec-subtab-btn').forEach(b => {
+                    const isActive = b === btn;
+                    if (isActive) {
+                        const c = subtabColors[b.getAttribute('data-subtab')] || subtabColors.control;
+                        b.classList.add('active');
+                        b.style.color = 'var(--color-text-main)';
+                        b.style.background = c.bg;
+                        b.style.borderColor = c.border;
+                    } else {
+                        b.classList.remove('active');
+                        b.style.color = 'var(--color-text-muted)';
+                        b.style.background = 'none';
+                        b.style.borderColor = 'transparent';
+                    }
+                });
+
+                renderRecognitionAccordion();
+            });
+        });
+
         if (btnTabMonitor) {
             btnTabMonitor.addEventListener('click', () => {
                 btnTabMonitor.classList.add('active');
@@ -1221,6 +1254,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Кэш команд распознавания + активная подвкладка (по типу парсера)
+    let _recognitionCommandsCache = [];
+    let _activeRecSubtab = 'control';
+
+    // Гибридные команды (parser_type=control, но имеют инкрементальный лут).
+    // Ручной список — попадают в подвкладку «Контроль + Лут», а не в «Контроль».
+    const HYBRID_COMMANDS = new Set(['Покормить жабу', 'Дейлики']);
+
+    // Классификация команды по подвкладке распознавания.
+    function classifyRecCommand(cmd) {
+        if (HYBRID_COMMANDS.has(cmd.command)) return 'hybrid';
+        const pt = cmd.parser_type || 'control';
+        if (pt === 'simple') return 'simple';
+        if (pt === 'additive') return 'additive';
+        return 'control';
+    }
+
     async function fetchAndRenderRecognitionRules() {
         const container = document.getElementById('recognition-accordion-container');
         if (!container) return;
@@ -1238,157 +1288,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const commands = await response.json();
             
             const recCommands = commands.filter(cmd => cmd.in_recognition === 1);
-            
-            if (recCommands.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">
-                        Нет команд в распознавании. Нажмите кнопку "Добавить команду" выше, чтобы добавить их.
-                    </div>
-                `;
-                return;
-            }
-            
-            let html = '';
+            _recognitionCommandsCache = recCommands;
+
+            // Обновляем счётчики на подвкладках
+            const subtabCounts = { control: 0, simple: 0, additive: 0, hybrid: 0 };
             recCommands.forEach(cmd => {
-                const parserType = cmd.parser_type || 'control';
-                const ptLabels = { control: 'контроль', simple: 'простой', additive: 'добавочный' };
-                const ptColors = { control: '#7c4dff', simple: '#00bfa5', additive: '#ff9100' };
-                const ptBgColors = { control: 'rgba(124,77,255,0.15)', simple: 'rgba(0,191,165,0.15)', additive: 'rgba(255,145,0,0.15)' };
-                const ptLabel = ptLabels[parserType] || parserType;
-                const ptColor = ptColors[parserType] || '#888';
-                const ptBg = ptBgColors[parserType] || 'rgba(136,136,136,0.15)';
-
-                html += `
-                    <div class="recognition-command-row" style="background: rgba(42, 27, 61, 0.2); border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden; margin-bottom: 8px;" data-cmd-id="${cmd.id}">
-                        <div class="recognition-command-header" style="padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span class="rec-expand-icon" style="transition: transform 0.2s; display: inline-block;">▶</span>
-                                <span style="font-weight: 600; color: var(--color-primary-hover); font-size: 14px;">${escapeHtml(cmd.command)}</span>
-                                <span style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; color: ${ptColor}; background: ${ptBg}; border: 1px solid ${ptColor}33; text-transform: uppercase; letter-spacing: 0.5px;" title="Тип парсера: ${ptLabel}">${ptLabel}</span>
-                            </div>
-                            <button class="btn danger small delete-recognition-cmd-btn" data-id="${cmd.id}" style="padding: 4px 10px; font-size: 11px; margin: 0; background-color: var(--color-danger); border-color: var(--color-danger); color: #fff; cursor: pointer; border-radius: 6px;">
-                                Удалить из распознавания
-                            </button>
-                        </div>
-                        <div class="cmd-description-row" data-cmd-id="${cmd.id}" style="padding: 0 16px; cursor: default; ${cmd.description ? '' : 'display: none;'}">
-                            <div style="padding: 6px 0 8px 28px; font-size: 12px; color: var(--color-text-muted); line-height: 1.4;">
-                                <span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(cmd.description)}</span>
-                                <span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>
-                            </div>
-                        </div>
-                        <div class="recognition-subcommands-container hidden" style="padding: 0 16px 16px 16px; border-top: 1px solid var(--border-glass); background: rgba(0, 0, 0, 0.15);" id="subcommands-container-${cmd.id}">
-                        </div>
-                    </div>
-                `;
+                const cls = classifyRecCommand(cmd);
+                subtabCounts[cls] = (subtabCounts[cls] || 0) + 1;
             });
-            
-            container.innerHTML = html;
-            
-            container.querySelectorAll('.recognition-command-header').forEach(hdr => {
-                hdr.addEventListener('click', (e) => {
-                    if (e.target.closest('.delete-recognition-cmd-btn')) return;
-                    
-                    const parentRow = hdr.closest('.recognition-command-row');
-                    const cmdId = parentRow.getAttribute('data-cmd-id');
-                    const subContainer = document.getElementById(`subcommands-container-${cmdId}`);
-                    const isHidden = subContainer.classList.toggle('hidden');
-                    
-                    const icon = hdr.querySelector('.rec-expand-icon');
-                    if (icon) {
-                        icon.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(90deg)';
-                    }
-                    
-                    if (!isHidden) {
-                        fetchAndRenderSubcommandsAndRules(cmdId, subContainer);
-                    }
-                });
-            });
-            
-            container.querySelectorAll('.delete-recognition-cmd-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const cmdId = btn.getAttribute('data-id');
-                    if (!confirm('Вы действительно хотите убрать эту команду из распознавания?')) return;
-                    
-                    try {
-                        const res = await fetch(`/api/monitor/commands/${cmdId}/recognition/toggle`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ in_recognition: 0 })
-                        });
-                        if (res.ok) {
-                            showToast('Команда убрана из распознавания', 'success');
-                            await fetchAndRenderRecognitionRules();
-                        } else {
-                            const err = await res.json();
-                            showToast('Ошибка: ' + formatError(err), 'error');
-                        }
-                    } catch (err) {
-                        console.error(err);
-                        showToast('❌ Ошибка сети', 'error');
-                    }
-                });
+            document.querySelectorAll('.rec-subtab-btn').forEach(btn => {
+                const subtab = btn.getAttribute('data-subtab');
+                const countEl = btn.querySelector('.rec-subtab-count');
+                if (countEl) countEl.textContent = `(${subtabCounts[subtab] || 0})`;
             });
 
-            // Inline-редактирование описания команды
-            container.querySelectorAll('.cmd-description-row').forEach(descRow => {
-                descRow.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const cmdId = descRow.getAttribute('data-cmd-id');
-                    const textEl = descRow.querySelector('.cmd-description-text');
-                    const hintEl = descRow.querySelector('.cmd-description-edit-hint');
-                    const currentText = textEl.textContent.trim();
-
-                    // Создаём input для редактирования
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.value = currentText;
-                    input.placeholder = 'Описание назначения команды (до 500 символов)...';
-                    input.maxLength = 500;
-                    input.style.cssText = 'width: 100%; background: var(--bg-input); border: 1px solid var(--color-primary); border-radius: 6px; color: var(--color-text-main); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box;';
-
-                    const parentDiv = textEl.parentElement;
-                    parentDiv.innerHTML = '';
-                    parentDiv.appendChild(input);
-                    input.focus();
-                    input.select();
-
-                    const save = async () => {
-                        const newDesc = input.value.trim();
-                        try {
-                            const res = await fetch(`/api/monitor/commands/${cmdId}/description`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ description: newDesc })
-                            });
-                            if (res.ok) {
-                                if (newDesc) {
-                                    parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
-                                    descRow.style.display = '';
-                                } else {
-                                    parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
-                                    descRow.style.display = 'none';
-                                }
-                            } else {
-                                const err = await res.json();
-                                showToast('Ошибка: ' + formatError(err), 'error');
-                                parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
-                            }
-                        } catch (err) {
-                            console.error(err);
-                            showToast('❌ Ошибка сети', 'error');
-                            parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
-                        }
-                    };
-
-                    input.addEventListener('blur', save);
-                    input.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-                        if (e.key === 'Escape') { input.value = currentText; input.blur(); }
-                    });
-                });
-            });
-            
+            renderRecognitionAccordion();
         } catch (err) {
             console.error(err);
             container.innerHTML = `
@@ -1397,6 +1311,179 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
         }
+    }
+
+    function renderRecognitionAccordion() {
+        const container = document.getElementById('recognition-accordion-container');
+        if (!container) return;
+
+        const recCommands = _recognitionCommandsCache.filter(cmd => classifyRecCommand(cmd) === _activeRecSubtab);
+            
+        if (_recognitionCommandsCache.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">
+                    Нет команд в распознавании. Нажмите кнопку "Добавить команду" выше, чтобы добавить их.
+                </div>
+            `;
+            return;
+        }
+
+        if (recCommands.length === 0) {
+            const subtabNames = { control: 'Контроль', simple: 'Простой', additive: 'Добавочный', hybrid: 'Контроль + Лут' };
+            container.innerHTML = `
+                <div style="text-align: center; color: var(--color-text-muted); padding: 48px; font-style: italic; font-size: 13px;">
+                    Нет команд типа «${subtabNames[_activeRecSubtab]}». Выберите другую подвкладку выше.
+                </div>
+            `;
+            return;
+        }
+            
+        let html = '';
+        recCommands.forEach(cmd => {
+            const parserType = cmd.parser_type || 'control';
+            const ptLabels = { control: 'контроль', simple: 'простой', additive: 'добавочный' };
+            const ptColors = { control: '#7c4dff', simple: '#00bfa5', additive: '#ff9100' };
+            const ptBgColors = { control: 'rgba(124,77,255,0.15)', simple: 'rgba(0,191,165,0.15)', additive: 'rgba(255,145,0,0.15)' };
+            const ptLabel = ptLabels[parserType] || parserType;
+            const ptColor = ptColors[parserType] || '#888';
+            const ptBg = ptBgColors[parserType] || 'rgba(136,136,136,0.15)';
+            const isHybrid = HYBRID_COMMANDS.has(cmd.command);
+            const hybridBadge = isHybrid ? '<span style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; color: #ff9100; background: rgba(255,145,0,0.15); border: 1px solid rgba(255,145,0,0.4); text-transform: uppercase; letter-spacing: 0.5px;" title="Гибрид: контроль + инкрементальный лут">контроль+лут</span>' : '';
+
+            html += `
+                <div class="recognition-command-row" style="background: rgba(42, 27, 61, 0.2); border: 1px solid var(--border-glass); border-radius: 8px; overflow: hidden;" data-cmd-id="${cmd.id}">
+                    <div class="recognition-command-header" style="padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="rec-expand-icon" style="transition: transform 0.2s; display: inline-block;">▶</span>
+                            <span style="font-weight: 600; color: var(--color-primary-hover); font-size: 14px;">${escapeHtml(cmd.command)}</span>
+                            <span style="font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; color: ${ptColor}; background: ${ptBg}; border: 1px solid ${ptColor}33; text-transform: uppercase; letter-spacing: 0.5px;" title="Тип парсера: ${ptLabel}">${ptLabel}</span>
+                            ${hybridBadge}
+                            ${cmd.has_regex
+                                    ? '<span style="color: var(--color-success); font-size: 14px;" title="Есть regex-правила">✓</span>'
+                                    : '<span style="color: var(--color-text-muted); font-size: 14px; opacity: 0.3;" title="Нет regex-правил">✓</span>'}
+                        </div>
+                        <button class="btn danger small delete-recognition-cmd-btn" data-id="${cmd.id}" style="padding: 4px 10px; font-size: 11px; margin: 0; background-color: var(--color-danger); border-color: var(--color-danger); color: #fff; cursor: pointer; border-radius: 6px;">
+                            Удалить из распознавания
+                        </button>
+                    </div>
+                    <div class="cmd-description-row" data-cmd-id="${cmd.id}" style="padding: 0 12px; cursor: default; ${cmd.description ? '' : 'display: none;'}">
+                        <div style="padding: 4px 0 6px 24px; font-size: 12px; color: var(--color-text-muted); line-height: 1.4;">
+                            <span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(cmd.description)}</span>
+                            <span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>
+                        </div>
+                    </div>
+                    <div class="recognition-subcommands-container hidden" style="padding: 0 12px 10px 12px; border-top: 1px solid var(--border-glass); background: rgba(0, 0, 0, 0.15);" id="subcommands-container-${cmd.id}">
+                    </div>
+                </div>
+            `;
+        });
+            
+        container.innerHTML = html;
+            
+        container.querySelectorAll('.recognition-command-header').forEach(hdr => {
+            hdr.addEventListener('click', (e) => {
+                if (e.target.closest('.delete-recognition-cmd-btn')) return;
+                    
+                const parentRow = hdr.closest('.recognition-command-row');
+                const cmdId = parentRow.getAttribute('data-cmd-id');
+                const subContainer = document.getElementById(`subcommands-container-${cmdId}`);
+                const isHidden = subContainer.classList.toggle('hidden');
+                    
+                const icon = hdr.querySelector('.rec-expand-icon');
+                if (icon) {
+                    icon.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(90deg)';
+                }
+                    
+                if (!isHidden) {
+                    fetchAndRenderSubcommandsAndRules(cmdId, subContainer);
+                }
+            });
+        });
+            
+        container.querySelectorAll('.delete-recognition-cmd-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const cmdId = btn.getAttribute('data-id');
+                if (!confirm('Вы действительно хотите убрать эту команду из распознавания?')) return;
+                    
+                try {
+                    const res = await fetch(`/api/monitor/commands/${cmdId}/recognition/toggle`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ in_recognition: 0 })
+                    });
+                    if (res.ok) {
+                        showToast('Команда убрана из распознавания', 'success');
+                        await fetchAndRenderRecognitionRules();
+                    } else {
+                        const err = await res.json();
+                        showToast('Ошибка: ' + formatError(err), 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('❌ Ошибка сети', 'error');
+                }
+            });
+        });
+
+        // Inline-редактирование описания команды
+        container.querySelectorAll('.cmd-description-row').forEach(descRow => {
+            descRow.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const cmdId = descRow.getAttribute('data-cmd-id');
+                const textEl = descRow.querySelector('.cmd-description-text');
+                const hintEl = descRow.querySelector('.cmd-description-edit-hint');
+                const currentText = textEl.textContent.trim();
+
+                // Создаём input для редактирования
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentText;
+                input.placeholder = 'Описание назначения команды (до 500 символов)...';
+                input.maxLength = 500;
+                input.style.cssText = 'width: 100%; background: var(--bg-input); border: 1px solid var(--color-primary); border-radius: 6px; color: var(--color-text-main); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box;';
+
+                const parentDiv = textEl.parentElement;
+                parentDiv.innerHTML = '';
+                parentDiv.appendChild(input);
+                input.focus();
+                input.select();
+
+                const save = async () => {
+                    const newDesc = input.value.trim();
+                    try {
+                        const res = await fetch(`/api/monitor/commands/${cmdId}/description`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ description: newDesc })
+                        });
+                        if (res.ok) {
+                            if (newDesc) {
+                                parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                                descRow.style.display = '';
+                            } else {
+                                parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(newDesc)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                                descRow.style.display = 'none';
+                            }
+                        } else {
+                            const err = await res.json();
+                            showToast('Ошибка: ' + formatError(err), 'error');
+                            parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        showToast('❌ Ошибка сети', 'error');
+                        parentDiv.innerHTML = `<span class="cmd-description-text" title="Кликните для редактирования">${escapeHtml(currentText)}</span><span class="cmd-description-edit-hint" style="opacity: 0.4; font-size: 10px; margin-left: 6px;">✏️</span>`;
+                    }
+                };
+
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                    if (e.key === 'Escape') { input.value = currentText; input.blur(); }
+                });
+            });
+        });
     }
 
     async function initTestTab() {
@@ -1838,22 +1925,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></div> Загрузка правил...
             </div>
         `;
+
+        // Определяем тип парсера команды для решения о рендере лут-карточки
+        const cmdObj = _recognitionCommandsCache.find(c => String(c.id) === String(cmdId));
+        const cmdParserType = cmdObj ? (cmdObj.parser_type || 'control') : 'control';
+        const isHybrid = cmdObj ? HYBRID_COMMANDS.has(cmdObj.command) : false;
+        const showLootCard = cmdParserType === 'additive' || isHybrid;
+
+        // Параллельно загружаем: правила распознавания + (для additive/гибрид) группы лута и привязки
+        const tasks = [fetch(`/api/monitor/commands/${cmdId}/recognition/rules`).then(r => r.ok ? r.json() : Promise.reject(new Error('Не удалось загрузить правила')))];
+        if (showLootCard) {
+            tasks.push(fetch('/api/loot/groups').then(r => r.ok ? r.json() : Promise.reject(new Error('Не удалось загрузить группы лута'))));
+            tasks.push(fetch(`/api/monitor/commands/${cmdId}/loot-config`).then(r => r.ok ? r.json() : Promise.reject(new Error('Не удалось загрузить привязки лута'))));
+        }
+
         try {
-            const res = await fetch(`/api/monitor/commands/${cmdId}/recognition/rules`);
-            if (!res.ok) throw new Error('Не удалось загрузить правила');
-            const subcommands = await res.json();
-            
+            const results = await Promise.all(tasks);
+            const subcommands = results[0];
+            const lootGroups = showLootCard ? (results[1] || []) : [];
+            const lootConfigs = showLootCard ? (results[2] || []) : [];
+
+            let html = '';
+
+            // ── Карточка лут-конфигурации (5 полей) для добавочных/гибридных команд ──
+            if (showLootCard) {
+                html += renderLootConfigCard(cmdId, lootGroups, lootConfigs);
+            }
+
             if (!subcommands || subcommands.length === 0) {
-                container.innerHTML = `
+                html += `
                     <div style="padding: 16px 0; color: var(--color-text-muted); text-align: center; font-style: italic; font-size: 12px;">
-                        Для этой команды пока нет настроенных правил распознавания.
+                        Для этой команды пока нет настроенных regex-правил распознавания.
                     </div>
                 `;
-                return;
-            }
-            
-            let html = '';
-            subcommands.forEach(sub => {
+            } else {
                 const SECTION_KEYS = {
                     "Работа": "work_info",
                     "Кормление": "feed_info",
@@ -1874,6 +1979,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     "Настроение": "mood",
                     "Победы": "wins",
                     "Поражения": "losses",
+                    "Ничьи": "draws",
                     "Арены": "arenas",
                     "Леденцы": "inv_lollipop",
                     "Аптечки": "inv_bandages",
@@ -1909,17 +2015,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     "Время кулона": "gang_pendant_duration",
                     "Брать на тусу": "gang_party"
                 };
+                subcommands.forEach(sub => {
                 const cleanSubName = sub.name.replace(" Вектор", "").trim();
                 const key = SECTION_KEYS[cleanSubName] || "";
                 const keyDisplay = key ? ` (${key})` : "";
                 
                 html += `
-                    <div class="subcommand-accordion-item" style="margin-top: 12px; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.1);">
-                        <div class="subcommand-header" style="padding: 8px 12px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 8px; cursor: pointer;" data-sub-id="${sub.id}">
+                    <div class="subcommand-accordion-item" style="margin-top: 8px; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,0.1);">
+                        <div class="subcommand-header" style="padding: 6px 10px; background: rgba(255,255,255,0.02); display: flex; align-items: center; gap: 8px; cursor: pointer;" data-sub-id="${sub.id}">
                             <span class="sub-expand-icon" style="transition: transform 0.2s; display: inline-block;">▶</span>
                             <span style="font-weight: 600; color: var(--color-text-main); font-size: 13px;">${escapeHtml(cleanSubName)}${keyDisplay}</span>
                         </div>
-                        <div class="subcommand-rules-table-container hidden" style="padding: 12px; border-top: 1px solid rgba(255,255,255,0.05);" id="rules-table-container-${sub.id}">
+                        <div class="subcommand-rules-table-container hidden" style="padding: 8px; border-top: 1px solid rgba(255,255,255,0.05);" id="rules-table-container-${sub.id}">
                 `;
                 
                 const rules = sub.rules || [];
@@ -1960,9 +2067,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                 `;
-            });
+                });
+            }
             
             container.innerHTML = html;
+            
+            // Привязываем события для карточки лута (если есть)
+            if (showLootCard) {
+                attachLootConfigCardEvents(cmdId, container);
+            }
             
             container.querySelectorAll('.subcommand-header').forEach(subHdr => {
                 subHdr.addEventListener('click', () => {
@@ -1983,6 +2096,270 @@ document.addEventListener('DOMContentLoaded', () => {
                     <strong>Ошибка:</strong> ${escapeHtml(err.message || 'Не удалось загрузить правила')}
                 </div>
             `;
+        }
+    }
+
+    // ── Карточка лут-конфигурации: 5 структурированных полей для добавочных/гибридных команд ──
+    // Поля: 1) Предмет/Группа лута (dropdown из БД)  2) Где число (авто)
+    //       3) Куда записать (авто)  4) Границы блока (section_header)  5) Кому адресовано (recipient_mode)
+    function renderLootConfigCard(cmdId, lootGroups, lootConfigs) {
+        // Куда записать — собираем db_column из предметов группы (для авто-подсказки)
+        function dbColumnsHint(group) {
+            const items = group.items || [];
+            if (items.length === 0) return '— (одиночная группа)';
+            return items.map(it => it.db_column).join(', ');
+        }
+
+        // Где число — группа 1 regex (везде в БД число — это первая группа захвата)
+        function whereNumberHint(group) {
+            return 'Авто: 1-я группа regex';
+        }
+
+        // Опции section_header (границы блока лута)
+        const sectionHeaderOptions = [
+            { value: 'Ты получил', label: '«Ты получил:»' },
+            { value: 'Каждый из вас получил', label: '«Каждый из вас получил:»' },
+            { value: 'custom', label: 'Свой заголовок…' },
+        ];
+        // Опции recipient_mode (кому адресовано)
+        const recipientModeOptions = [
+            { value: 'pending', label: 'По очереди команд (FIFO)' },
+            { value: 'tag', label: 'По тегу [id|]' },
+            { value: 'fwd', label: 'По пересланному сообщению' },
+            { value: 'name', label: 'По имени получателя' },
+        ];
+
+        let rowsHtml = '';
+        if (lootConfigs.length === 0) {
+            rowsHtml = `
+                <div style="padding: 8px 4px; color: var(--color-text-muted); font-style: italic; font-size: 11px;">
+                    К команде ещё не привязана ни одна группа лута. Выберите группу ниже и нажмите «Привязать».
+                </div>
+            `;
+        } else {
+            lootConfigs.forEach(cfg => {
+                const group = lootGroups.find(g => g.id === cfg.group_id);
+                const gName = group ? escapeHtml(group.name) : `#${cfg.group_id} (удалена)`;
+                const gDesc = group ? escapeHtml(group.description || '') : '';
+                const colsHint = group ? dbColumnsHint(group) : '—';
+                const numHint = group ? whereNumberHint(group) : '—';
+                const sh = cfg.section_header || 'Ты получил';
+                const isCustomSh = !sectionHeaderOptions.some(o => o.value === sh);
+                const rm = cfg.recipient_mode || 'pending';
+
+                rowsHtml += `
+                    <div class="loot-config-row" data-config-id="${cfg.id}" data-group-id="${cfg.group_id}" style="display: grid; grid-template-columns: 2fr 1.6fr 1.4fr 1.6fr 1.4fr auto; gap: 6px; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px;">
+                        <!-- 1. Предмет/Группа лута -->
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span style="font-weight: 600; color: var(--color-primary-hover);">${gName}</span>
+                            <span style="color: var(--color-text-muted); font-size: 10px;">${gDesc}</span>
+                        </div>
+                        <!-- 2. Где число -->
+                        <div style="color: var(--color-text-muted);" title="${escapeHtml(numHint)}">
+                            <span style="opacity: 0.7;">🔢</span> ${escapeHtml(numHint)}
+                        </div>
+                        <!-- 3. Куда записать -->
+                        <div style="color: var(--color-success);" title="${escapeHtml(colsHint)}">
+                            <span style="opacity: 0.7;">💾</span> ${escapeHtml(colsHint)}
+                        </div>
+                        <!-- 4. Границы блока (section_header) -->
+                        <div>
+                            <select class="loot-cfg-section-header" data-config-id="${cfg.id}" style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 3px 6px; font-size: 11px; box-sizing: border-box;">
+                                ${sectionHeaderOptions.map(o => `<option value="${escapeHtml(o.value)}" ${((isCustomSh ? 'custom' : sh) === o.value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
+                            </select>
+                            <input type="text" class="loot-cfg-section-header-custom" data-config-id="${cfg.id}" placeholder="Свой заголовок…" value="${isCustomSh ? escapeHtml(sh) : ''}" style="width: 100%; margin-top: 3px; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 3px 6px; font-size: 11px; box-sizing: border-box; ${isCustomSh ? '' : 'display: none;'}">
+                        </div>
+                        <!-- 5. Кому адресовано (recipient_mode) -->
+                        <div>
+                            <select class="loot-cfg-recipient-mode" data-config-id="${cfg.id}" style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 3px 6px; font-size: 11px; box-sizing: border-box;">
+                                ${recipientModeOptions.map(o => `<option value="${escapeHtml(o.value)}" ${rm === o.value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <!-- Действие: отвязать -->
+                        <button class="btn danger small loot-cfg-unbind-btn" data-config-id="${cfg.id}" data-group-id="${cfg.group_id}" title="Отвязать группу от команды" style="padding: 3px 8px; font-size: 11px; margin: 0; background-color: var(--color-danger); border-color: var(--color-danger); color: #fff; cursor: pointer; border-radius: 6px;">✕</button>
+                    </div>
+                `;
+            });
+        }
+
+        // Список ещё не привязанных групп для dropdown «Привязать новую»
+        const boundGroupIds = new Set(lootConfigs.map(c => c.group_id));
+        const availableGroups = lootGroups.filter(g => !boundGroupIds.has(g.id));
+        const addGroupOptions = availableGroups.length > 0
+            ? availableGroups.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')
+            : '<option value="" disabled>Все группы уже привязаны</option>';
+        const defaultShOptions = sectionHeaderOptions.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
+        const defaultRmOptions = recipientModeOptions.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
+
+        return `
+            <div class="loot-config-card" style="margin-bottom: 10px; border: 1px solid rgba(255,145,0,0.3); border-radius: 8px; background: rgba(255,145,0,0.05); overflow: hidden;">
+                <div style="padding: 6px 10px; background: rgba(255,145,0,0.1); display: flex; align-items: center; gap: 8px;">
+                    <span style="font-weight: 700; color: #ff9100; font-size: 12px;">🎁 Конфигурация лута (5 параметров)</span>
+                    <span style="color: var(--color-text-muted); font-size: 10px;">Что выпадает · где число · куда писать · границы блока · получатель</span>
+                </div>
+                <!-- Заголовок таблицы -->
+                <div style="display: grid; grid-template-columns: 2fr 1.6fr 1.4fr 1.6fr 1.4fr auto; gap: 6px; padding: 4px 4px 2px 4px; font-size: 10px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.3px;">
+                    <div>1. Предмет / Группа лута</div>
+                    <div>2. Где число</div>
+                    <div>3. Куда записать</div>
+                    <div>4. Границы блока</div>
+                    <div>5. Кому адресовано</div>
+                    <div></div>
+                </div>
+                <!-- Строки привязок -->
+                <div class="loot-config-rows" style="padding: 0 4px;">
+                    ${rowsHtml}
+                </div>
+                <!-- Форма привязки новой группы -->
+                <div style="display: grid; grid-template-columns: 2fr 1.6fr 1.4fr 1.6fr 1.4fr auto; gap: 6px; padding: 8px 4px 4px 4px; border-top: 1px solid rgba(255,255,255,0.05); align-items: end;">
+                    <div>
+                        <select class="loot-cfg-new-group" style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 4px 6px; font-size: 11px; box-sizing: border-box;">
+                            ${addGroupOptions}
+                        </select>
+                    </div>
+                    <div style="color: var(--color-text-muted); font-size: 10px; font-style: italic;">— авто —</div>
+                    <div style="color: var(--color-text-muted); font-size: 10px; font-style: italic;">— авто —</div>
+                    <div>
+                        <select class="loot-cfg-new-sh" style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 4px 6px; font-size: 11px; box-sizing: border-box;">
+                            ${defaultShOptions}
+                        </select>
+                    </div>
+                    <div>
+                        <select class="loot-cfg-new-rm" style="width: 100%; background: var(--bg-input); border: 1px solid var(--border-glass); border-radius: 6px; color: var(--color-text-main); padding: 4px 6px; font-size: 11px; box-sizing: border-box;">
+                            ${defaultRmOptions}
+                        </select>
+                    </div>
+                    <button class="btn primary small loot-cfg-add-btn" data-cmd-id="${cmdId}" style="padding: 4px 10px; font-size: 11px; margin: 0; background-color: var(--color-primary); border-color: var(--color-primary); color: #fff; cursor: pointer; border-radius: 6px;">＋ Привязать</button>
+                </div>
+            </div>
+        `;
+    }
+
+    // Привязка событий к карточке лут-конфигурации
+    function attachLootConfigCardEvents(cmdId, container) {
+        const card = container.querySelector('.loot-config-card');
+        if (!card) return;
+
+        // 4. Границы блока: показать/скрыть поле «Свой заголовок»
+        card.querySelectorAll('.loot-cfg-section-header').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const cid = sel.getAttribute('data-config-id');
+                const customInput = card.querySelector(`.loot-cfg-section-header-custom[data-config-id="${cid}"]`);
+                if (customInput) {
+                    customInput.style.display = sel.value === 'custom' ? '' : 'none';
+                }
+            });
+        });
+
+        // Сохранение настроек строки (section_header + recipient_mode) при изменении
+        async function saveRowConfig(configId) {
+            const shSel = card.querySelector(`.loot-cfg-section-header[data-config-id="${configId}"]`);
+            const shCustom = card.querySelector(`.loot-cfg-section-header-custom[data-config-id="${configId}"]`);
+            const rmSel = card.querySelector(`.loot-cfg-recipient-mode[data-config-id="${configId}"]`);
+            if (!shSel || !rmSel) return;
+            let sectionHeader = shSel.value === 'custom' ? (shCustom ? shCustom.value.trim() : '') : shSel.value;
+            if (!sectionHeader) sectionHeader = 'Ты получил';
+            const recipientMode = rmSel.value;
+            // Находим group_id по config_id для PUT-маршрута
+            const row = card.querySelector(`.loot-config-row[data-config-id="${configId}"]`);
+            const groupId = row ? row.getAttribute('data-group-id') : null;
+            if (!groupId) return;
+            try {
+                const res = await fetch(`/api/monitor/commands/${cmdId}/loot-config/${groupId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ section_header: sectionHeader, recipient_mode: recipientMode })
+                });
+                if (res.ok) {
+                    showToast('Настройки лута сохранены', 'success');
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    showToast('Ошибка: ' + formatError(err), 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('❌ Ошибка сети', 'error');
+            }
+        }
+
+        card.querySelectorAll('.loot-cfg-section-header, .loot-cfg-section-header-custom, .loot-cfg-recipient-mode').forEach(el => {
+            const evt = el.tagName === 'SELECT' ? 'change' : 'blur';
+            el.addEventListener(evt, () => {
+                const cid = el.getAttribute('data-config-id');
+                if (cid) saveRowConfig(cid);
+            });
+        });
+
+        // Отвязать группу
+        card.querySelectorAll('.loot-cfg-unbind-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const groupId = btn.getAttribute('data-group-id');
+                if (!confirm('Отвязать эту группу лута от команды?')) return;
+                try {
+                    const res = await fetch(`/api/monitor/commands/${cmdId}/loot-config/${groupId}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast('Группа отвязана', 'success');
+                        await refreshLootConfigCard(cmdId, container);
+                    } else {
+                        const err = await res.json().catch(() => ({}));
+                        showToast('Ошибка: ' + formatError(err), 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('❌ Ошибка сети', 'error');
+                }
+            });
+        });
+
+        // Привязать новую группу
+        const addBtn = card.querySelector('.loot-cfg-add-btn');
+        if (addBtn) {
+            addBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const groupSel = card.querySelector('.loot-cfg-new-group');
+                const shSel = card.querySelector('.loot-cfg-new-sh');
+                const rmSel = card.querySelector('.loot-cfg-new-rm');
+                const groupId = groupSel ? groupSel.value : null;
+                if (!groupId) { showToast('Выберите группу лута', 'error'); return; }
+                const sectionHeader = shSel ? shSel.value : 'Ты получил';
+                const recipientMode = rmSel ? rmSel.value : 'pending';
+                try {
+                    const res = await fetch(`/api/monitor/commands/${cmdId}/loot-config`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ group_id: parseInt(groupId), section_header: sectionHeader, recipient_mode: recipientMode })
+                    });
+                    if (res.ok) {
+                        showToast('Группа привязана', 'success');
+                        await refreshLootConfigCard(cmdId, container);
+                    } else {
+                        const err = await res.json().catch(() => ({}));
+                        showToast('Ошибка: ' + formatError(err), 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('❌ Ошибка сети', 'error');
+                }
+            });
+        }
+    }
+
+    // Перерисовка только карточки лута (без перезагрузки правил)
+    async function refreshLootConfigCard(cmdId, container) {
+        try {
+            const [lootGroups, lootConfigs] = await Promise.all([
+                fetch('/api/loot/groups').then(r => r.ok ? r.json() : []),
+                fetch(`/api/monitor/commands/${cmdId}/loot-config`).then(r => r.ok ? r.json() : [])
+            ]);
+            const oldCard = container.querySelector('.loot-config-card');
+            if (oldCard) {
+                oldCard.outerHTML = renderLootConfigCard(cmdId, lootGroups, lootConfigs);
+                attachLootConfigCardEvents(cmdId, container);
+            }
+        } catch (err) {
+            console.error(err);
+            showToast('❌ Не удалось обновить карточку лута', 'error');
         }
     }
 
@@ -2167,6 +2544,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         chat_id: null,
                         wins: state.accounts.reduce((sum, a) => sum + (a.wins || 0), 0),
                         losses: state.accounts.reduce((sum, a) => sum + (a.losses || 0), 0),
+                        draws: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.draws) || 0), 0),
                         reserve_days: state.accounts.reduce((sum, a) => sum + (a.reserve_days || 0), 0),
                         work_info: state.accounts.filter(a => a.status === 'working').length + " на работе",
                         feed_info: state.accounts.filter(a => a.feed_info && (a.feed_info.includes('Покормлена') || a.feed_info === 'well-fed')).length + " покормлено",
@@ -2183,8 +2561,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         clash: state.accounts.filter(a => a.clash === 'Доступен').length + " готовы",
                         feed_in: "Сводные",
                         arena_season: "Сводные",
-                        arena_wins: state.accounts.reduce((sum, a) => sum + (a.arena_wins || 0), 0),
-                        arena_losses: state.accounts.reduce((sum, a) => sum + (a.arena_losses || 0), 0),
+                        arena_wins: state.accounts.reduce((sum, a) => sum + (a.arena_wins || (a.toad_state && a.toad_state.wins) || 0), 0),
+                        arena_losses: state.accounts.reduce((sum, a) => sum + (a.arena_losses || (a.toad_state && a.toad_state.losses) || 0), 0),
+                        arena_draws: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.draws) || 0), 0),
                         arena_place: "Сводные",
                         arena_points: state.accounts.reduce((sum, a) => sum + (a.arena_points || 0), 0),
                         clan_name: "Сводные",
@@ -2565,6 +2944,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 work_type: 'столовая',
                 wins: state.accounts.reduce((sum, a) => sum + (a.wins || 0), 0),
                 losses: state.accounts.reduce((sum, a) => sum + (a.losses || 0), 0),
+                draws: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.draws) || 0), 0),
                 reserve_days: state.accounts.reduce((sum, a) => sum + (a.reserve_days || 0), 0),
                 work_info: state.accounts.filter(a => a.status === 'working').length + " на работе",
                 feed_info: state.accounts.filter(a => a.feed_info && (a.feed_info.includes('Покормлена') || a.feed_info === 'well-fed')).length + " покормлено",
@@ -2581,8 +2961,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 clash: state.accounts.filter(a => a.clash === 'Доступен').length + " готовы",
                 feed_in: "Сводные",
                 arena_season: "Сводные",
-                arena_wins: state.accounts.reduce((sum, a) => sum + (a.arena_wins || 0), 0),
-                arena_losses: state.accounts.reduce((sum, a) => sum + (a.arena_losses || 0), 0),
+                arena_wins: state.accounts.reduce((sum, a) => sum + (a.arena_wins || (a.toad_state && a.toad_state.wins) || 0), 0),
+                arena_losses: state.accounts.reduce((sum, a) => sum + (a.arena_losses || (a.toad_state && a.toad_state.losses) || 0), 0),
+                arena_draws: state.accounts.reduce((sum, a) => sum + ((a.toad_state && a.toad_state.draws) || 0), 0),
                 arena_place: "Сводные",
                 arena_points: state.accounts.reduce((sum, a) => sum + (a.arena_points || 0), 0),
                 clan_name: "Сводные",
@@ -2709,6 +3090,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Поражения</span>
                                                 <span class="stat-value" id="stat-row-losses">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Ничьи</span>
+                                                <span class="stat-value" id="stat-row-draws">Загрузка...</span>
                                             </div>
                                         </div>
                                     </div>
@@ -2962,6 +3347,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <div class="stat-row">
                                                 <span class="stat-label">Поражений</span>
                                                 <span class="stat-value" id="stat-row-arena-losses">Загрузка...</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span class="stat-label">Ничьих</span>
+                                                <span class="stat-value" id="stat-row-arena-draws">Загрузка...</span>
                                             </div>
                                             <div class="stat-row">
                                                 <span class="stat-label">Место в сезоне</span>
@@ -3621,20 +4010,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const timerGang = document.querySelector('#timer-column-gang span:last-child');
-        const dotGang = document.querySelector('#timer-column-gang .dot');
-        if (timerGang) {
-            const fullText = `Проверено: ${timeAgoText}`;
-            if (timerGang.textContent !== fullText) timerGang.textContent = fullText;
-            if (dotGang) {
-                if (acc.last_checked) {
-                    dotGang.classList.remove('offline');
-                } else {
-                    dotGang.classList.add('offline');
-                }
-            }
-        }
-
         // 2. Обновляем текстовые значения статистики в подвкладке «Жаба»
         const rowSatiety = document.getElementById('stat-row-satiety');
         if (rowSatiety) {
@@ -3704,6 +4079,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rowLosses) {
             const val = `💀 ${acc.losses || 0}`;
             if (rowLosses.textContent !== val) rowLosses.textContent = val;
+        }
+
+        const rowDraws = document.getElementById('stat-row-draws');
+        if (rowDraws) {
+            const val = `🤝 ${acc.draws || 0}`;
+            if (rowDraws.textContent !== val) rowDraws.textContent = val;
         }
 
         const wrapperEquipment = document.getElementById('stats-column-equipment-wrapper');
@@ -3956,14 +4337,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const rowArenaWins = document.getElementById('stat-row-arena-wins');
         if (rowArenaWins) {
-            const val = `🏆 ${acc.arena_wins || 0}`;
+            const val = `🏆 ${acc.arena_wins || (ts && ts.wins) || 0}`;
             if (rowArenaWins.textContent !== val) rowArenaWins.textContent = val;
         }
 
         const rowArenaLosses = document.getElementById('stat-row-arena-losses');
         if (rowArenaLosses) {
-            const val = `💀 ${acc.arena_losses || 0}`;
+            const val = `💀 ${acc.arena_losses || (ts && ts.losses) || 0}`;
             if (rowArenaLosses.textContent !== val) rowArenaLosses.textContent = val;
+        }
+
+        const rowArenaDraws = document.getElementById('stat-row-arena-draws');
+        if (rowArenaDraws) {
+            const val = `🤝 ${(ts && ts.draws) || 0}`;
+            if (rowArenaDraws.textContent !== val) rowArenaDraws.textContent = val;
         }
 
         const rowArenaPlace = document.getElementById('stat-row-arena-place');

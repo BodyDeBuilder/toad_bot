@@ -43,17 +43,21 @@
 
 Полная схема: `db_manager.py:37-95`.
 
-### `toad_states` (recognition.db) — 49 колонок
+### `toad_states` (recognition.db) — 93 колонки
 
 Группы полей:
 
 | Группа | Колонки | Источник парсера |
 |---|---|---|
 | **«Жаба инфо»** (кулдауны) | `work_info`, `work_cooldown`, `feed_info`, `feed_cooldown`, `fattening`, `fattening_cooldown`, `dungeon_info`, `dungeon_cooldown`, `arena_info`, `arena_cooldown`, `party_info`, `marriage_info`, `spouse_1`, `spouse_2`, `robbery_info`, `map_info`, `location_name` | `parse_toad_info` |
-| **«Моя жаба»** (статы) | `name`, `level`, `satiety_cur`, `satiety_max`, `status`, `state`, `bugs`, `class`, `mood`, `wins`, `losses`, `arenas` | `parse_my_toad` |
+| **«Моя жаба»** (статы) | `name`, `level`, `satiety_cur`, `satiety_max`, `status`, `state`, `bugs`, `class`, `mood`, `wins`, `losses`, `draws`, `arenas`, `arena_points` | `parse_my_toad` (name/level/...); `draws` — `parse_arena_battle`; `arena_points` — `parse_arena_battle`/additive-парсеры лута |
 | **«Мой инвентарь»** (предметы) | `inv_lollipop`, `inv_bandages`, `inv_beer`, `inv_dragonfly`, `inv_map`, `inv_tape`, `inv_gang_frogs`, `inv_exp_capsule` | `parse_inventory` |
 | **Инвентарь: снаряжение** | `eq_pass`, `eq_lockpick`, `eq_battery` | `parse_inventory` |
 | **Инвентарь: крафт** | `cr_puzzle`, `cr_link`, `cr_stone`, `cr_mask`, `cr_paper`, `cr_lightning` | `parse_inventory` |
+| **«Мое снаряжение»** (броня/оружие) | `eq_melee`, `eq_ranged`, `eq_helmet`, `eq_chest`, `eq_paws`, `eq_*_mod`, `eq_buffs`, `eq_gang`, `eq_booster`, `eq_parts_weapon`, `eq_parts_algae`, `eq_parts_lily`, `eq_parts_beak`, `eq_gems`, `eq_health`, `eq_attack`, `eq_defense` | `parse_equipment` |
+| **«Моя банда»** | `has_gang`, `gang_type`, `gang_name`, `gang_loyalty_cur`, `gang_loyalty_max`, `gang_damage`, `gang_chance`, `gang_pendant`, `gang_pendant_duration`, `gang_party` | `parse_gang` |
+| **«Дейлики»** | `daily_status`, `reserve_days`, `daily_completed`, `daily_tasks`, `daily_reward`, `daily_bonus_tasks`, `daily_bonus_reward` | `parse_dailies` |
+| **«Семена огорода»** (лут) | `seed_lollipop`, `seed_bandages`, `seed_gems`, `seed_exp_capsule`, `seed_tape`, `seed_candies` | additive-парсеры лута (Арена, Подземелье, и т.д.) |
 | **«Покормить жабу»** | `feed_info` (`"fed"`/`"cooldown"`), `feed_cooldown`, `feed_loot` (сырой текст лута, опц.), + переиспользует `satiety_cur`, `satiety_max`, `mood`, `bugs`. **Тип парсера: `additive`** — `bugs` и лут-предметы пишутся через инкремент (`_deltas`), `satiety_cur`/`mood` обязательны (ненаход → алерт), `feed_loot` опционален (ненаход → NULL/прочерк). | `parse_feed` |
 | **Метаданные** | `vk_id` (PK), `last_updated` | Автоматически |
 
@@ -64,6 +68,20 @@
 ### `delta_audit` (recognition.db)
 
 Журнал аудита инкрементов/декрементов и предупреждений о ненаходе обязательных полей. См. §4.2.
+
+### `loot_groups` + `loot_items` + `command_loot_config` (recognition.db) — БД «Выпадающий лут»
+
+2-уровневая модель лута + связка с командами. Заменяет захардкоженные regex-паттерны для дропа: команды ссылаются на группы лута, а рабочие regex лежат в БД и редактируются через UI.
+
+| Таблица | Ключевые поля | Назначение |
+|---|---|---|
+| **`loot_groups`** | `id`, `group_key` (UNIQUE), `name`, `pattern_regex`, `description` | Логическая категория лута (букашки, семена, крафт-кусочки…). `pattern_regex` — рабочий regex **для одиночных групп** (bugs/arena_points/map); для многоэлементных групп это человекочитаемый комментарий. |
+| **`loot_items`** | `id`, `group_id` (FK→loot_groups, CASCADE), `emoji`, `db_column`, `item_name`, `item_regex` | Конкретный предмет: эмодзи → колонка в `toad_states`. `item_regex` — **рабочий** regex строки предмета, где группа 1 = число. По одному на каждый эмодзи многоэлементной группы. Одиночные группы не имеют items. |
+| **`command_loot_config`** | `id`, `command_id` (FK→monitored_commands, CASCADE), `group_id` (FK→loot_groups, CASCADE), `section_header`, `recipient_mode`, UNIQUE(command_id, group_id) | Связь «команда → какие группы лута могут выпасть». `section_header` — фраза, после которой идёт блок лута («Ты получил», «Каждый из вас получил», custom). `recipient_mode` — как резолвить получателя: `pending` (FIFO-очередь) / `tag` ([id|]) / `fwd` (пересланное) / `name` (имя). |
+
+**Засеянные группы (6):** `bugs` (букашки), `arena_points` (очки арены), `map` (карты болота) — одиночные; `seed` (6 семян), `craft_piece` (6 крафт-кусочков), `equipment_part` (4 снаряж. кусочка) — многоэлементные, по 1 `item_regex` на эмодзи.
+
+**Загрузка в рантайме:** `load_loot_rules_from_db(db)` (`toad_info_parser.py`) вызывается из `KnowledgeBase.load_from_db()` при старте. Перебирает `loot_groups` + `loot_items` и формирует `_LOOT_LINE_RULES` (глобальный список правил для `parse_loot_line`). Если БД пуста — остаётся захардкоженный фолбэк-список (обратная совместимость).
 
 ---
 
@@ -105,6 +123,56 @@ handlers.py → определение action_type через KnowledgeBase
            ├── response_type == "cooldown" → инфо-лог, БД не трогаем
            └── response_type == "success" → update_account_fields(vk_id, db_updates) → bot.db
 ```
+
+### 3.1. PUSH-путь: bot-initiated сообщения (арена / клан / получение)
+
+Push-сообщения — это ответы Жабабота, которые бот присылает сам (не на команду
+пользователя): результаты PvP-боёв на арене по расписанию, клановые войны,
+переводы/подарки. Для них неприменима FIFO-очередь ожидающих команд (нет
+«мы отправили команду → бот ответил»), поэтому получатель определяется прямо из
+текста ответа.
+
+```
+Ответ Жабабота (from_id < 0)
+     │
+     ▼
+handlers.py: bot_match = KnowledgeBase.match_bot_response(text)
+     │
+     ├── action_type ∈ PUSH_ACTIONS (arena_battle / clan_war / gift_received)
+     │     │
+     │     ▼  асинхронная задача: messages.get_by_id → full_msg (fwd/reply)
+     │     │
+     │     ▼  candidates = get_all_accounts()  (все аккаунты в чате)
+     │     │
+     │     ▼  AccountResolver.resolve(text, candidates, reply_message, fwd_messages)
+     │     │     ├── Уровень 1: тег [id|Имя]  → name_verified=True/False (сверка с accounts.name)
+     │     │     ├── Уровень 2: fwd/reply from_id  → точный VK ID
+     │     │     └── Уровень 3: bare-имя «X получил:»  → точное совпадение с clean_member_name
+     │     │     дедупликация по vk_id, приоритет tag > fwd > name
+     │     │
+     │     ▼  для каждого резолвленного аккаунта (их может быть несколько — клан-бой):
+     │     │     ├── parse_arena_battle / parse_clan_war / parse_gift_received(text, target_name)
+     │     │     │     → dict с _deltas (wins/losses/draws, arena_points, loot…)
+     │     │     ├── if not name_verified → log_action(warning)  ← алерт о смене жабы
+     │     │     └── save_toad_state(vk_id, parsed) → recognition.db
+     │     │           (additive: COALESCE(col,0)+N + аудит-след в delta_audit)
+     │     └── return  (push обработан, в обычную логику не идём)
+     │
+     └── обычная логика (tag-чек + pending queue + парсинг control/simple команд)
+```
+
+**Ключевые отличия от обычного пути:**
+- **Один текст → несколько аккаунтов.** AccountResolver возвращает список
+  `ResolveResult`. Общий дроп клан-боя («Каждый из вас получил:») начисляется
+  каждому резолвленному аккаунту; индивидуальный («Петя получил:») — только
+  совпавшему по имени.
+- **`messages.get_by_id` — один лишний API-вызов**, но только для push-сообщений.
+- **Сверка имени в теге** защищает от случая «сменилась жаба под тем же vk_id»:
+  расхождение → `name_verified=False` → warning-лог, но данные всё равно
+  сохраняются (резолвим по ID, алертим по имени).
+- В monitor-режиме (вкладка «Распознавание») push-парсеры вызываются через
+  `_evaluate_recognition_status` без `target_name` (определяем только тип
+  сообщения и сохраняем общую часть при наличии `player_vk_id`).
 
 **Ключевой принцип:** `save_toad_state` пишет **всё** что распарсил парсер в `recognition.db`. `update_account_fields` пишет **выборочно** в `bot.db` — только те поля, которые нужны для UI-агрегации и быстрого доступа.
 
@@ -169,6 +237,7 @@ async def save_toad_state(self, vk_id: int, data: dict) -> None:
 | `mood` | `mood` | напрямую |
 | `wins` | `wins` | напрямую |
 | `losses` | `losses` | напрямую |
+| `draws` | — | только в `toad_states` (additive из push-боёв); в UI читается через `ts.draws` |
 
 ---
 
@@ -333,17 +402,73 @@ elif cmd_real_name == "Новая команда":
 3. Добавить записи в `SECTION_KEYS` (`app.js`).
 4. Для лут-команд — сначала скелет (success/cooldown), затем подразделы предметов после сбора примеров (см. `RECOGNITION_GUIDE.md` § 5.5).
 
+### 7.7. Особый случай: push-команды (bot-initiated сообщения)
+
+Push-команды (арена / клан / получение) **не имеют триггера пользователя** — их инициирует сам Жабабот. Поэтому шаги 7.2 (COMMAND_TRIGGERS) и 7.4 (test-parse) для них не нужны, а вместо них требуется:
+
+1. **Константа action_type** в `knowledge_base.py`:
+   ```python
+   ACTION_NEW_PUSH = "new_push"  # внутренний идентификатор
+   ```
+   и добавление в `PUSH_ACTIONS`:
+   ```python
+   PUSH_ACTIONS = frozenset({..., ACTION_NEW_PUSH})
+   ```
+   Триггер `COMMAND_TRIGGERS` **не добавляется** — пользователь эту команду не отправляет.
+
+2. **Шаблон ответа** в посеве `response_templates` (`db_manager.py`) с `db_updates = {}` (парсинг идёт специализированным парсером, не через regex-группы):
+   ```python
+   default_responses.append(
+       (ACTION_NEW_PUSH, "Описание шаблона", "success",
+        r"ключевая\s+фраза\s+ответа", json.dumps({}))
+   )
+   ```
+   Также команда сеется в `commands_registry` (action_type, имя, пустой trigger) и `monitored_commands` (parser_type='additive', in_recognition=1).
+
+3. **Парсер** в `toad_info_parser.py` — возвращает `_deltas` (additive). Для лута используейте готовые хелперы `parse_loot_line` / `_parse_loot_section` / `_extract_received_sections` (последний умеет разбирать секции с тегами `[id|]` и без).
+
+4. **PUSH-путь в handlers.py уже обрабатывает все PUSH_ACTIONS автоматически** — никаких изменений там не требуется. Убедитесь только, что ваш `ACTION_NEW_PUSH` есть в `PUSH_ACTIONS`, а парсер импортирован и добавлен в dispatch по `action_type`.
+
+5. **Регистрация в `_evaluate_recognition_status`** (`db_manager.py`) — как для обычных команд (см. 7.3), но парсер вызывается без `target_name` (в monitor-режиме резолв получателя недоступен).
+
+Получатель push-сообщения резолвится через `account_resolver.py` (см. §3.1), не через FIFO-очередь команд. Эталонные реализации — `parse_arena_battle`, `parse_clan_war`, `parse_gift_received`.
+
+### 7.8. Привязка лута к команде через UI (БД «Выпадающий лут»)
+
+Для `additive`-команд (и гибридов) рабочий regex дропа **больше не пишется руками в `_LOOT_LINE_RULES`** — он хранится в БД и привязывается к команде через карточку лут-конфигурации.
+
+**Подвкладки «Распознавание»:** команды разделены на 4 группы по типу парсера:
+- 🟣 **Контроль** (`control`) — полный снимок состояния.
+- 🔵 **Простой** (`simple`) — только статус успеха/кулдауна.
+- 🟠 **Добавочный** (`additive`) — инкрементальный лут.
+- 🟣➕🟠 **Контроль + Лут** — гибриды (ручной список: «Покормить жабу», «Дейлики»). Это команды с `parser_type=control`, которые дополнительно копят дроп.
+
+**Карточка лута (5 полей)** появляется при раскрытии команды на подвкладках «Добавочный» и «Контроль + Лут». Вместо одной regex-строки показывается структурированная форма:
+
+| Поле | Что задаёт | Заполнение |
+|---|---|---|
+| **1. Предмет/Группа лута** | какая группа лута выпадает (bugs, seed, craft_piece…) | dropdown из `loot_groups` |
+| **2. Где число** | в какой группе regex искать число | авто (1-я группа захвата) |
+| **3. Куда записать** | в какие колонки `toad_states` писать | авто (db_column из предметов группы) |
+| **4. Границы блока** | фраза-заголовок секции лута | select: «Ты получил:» / «Каждый из вас получил:» / custom → `command_loot_config.section_header` |
+| **5. Кому адресовано** | как определить получателя | select: по очереди / по тегу / по пересылке / по имени → `command_loot_config.recipient_mode` |
+
+Поля 2–3 заполняются автоматически из выбранной группы; 4–5 сохраняются в `command_loot_config` через API. При добавлении/изменении предмета в `loot_items.item_regex` новый паттерн подхватывается после рестарта (через `load_loot_rules_from_db`). Это решает проблему частой смены формулировок лута со стороны Жабабота: правка идёт в БД через UI, без деплоя кода.
+
+**API эндпоинты:** `GET/POST /api/loot/groups`, `PUT/DELETE /api/loot/groups/{id}`, `POST/PUT/DELETE /api/loot/items[/{id}]`, `GET/POST/PUT/DELETE /api/monitor/commands/{command_id}/loot-config[/{group_id}]`.
+
 ---
 
 ## 8. Связанные файлы
 
 | Файл | Что содержит |
 |---|---|
-| `src/utils/toad_info_parser.py` | Все Python-парсеры (`parse_toad_info`, `parse_my_toad`, `parse_inventory`, `parse_equipment`, `parse_feed`) |
-| `src/database/db_manager.py` | Схемы БД, `save_toad_state`, `get_all_accounts`, `_evaluate_recognition_status`, посев правил |
-| `src/utils/knowledge_base.py` | `ACTION_*`, `COMMAND_TRIGGERS`, `RESPONSE_PATTERNS`, `match_bot_response` |
-| `src/vk/handlers.py` | Триггеры парсеров (ACTION_INFO/STATS/INVENTORY/EQUIPMENT), вызовы save/update |
-| `src/web/server.py` | Эндпоинт `test-parse` со спецеветками для парсеров |
-| `src/web/static/app.js` | `SECTION_KEYS`, рендер UI из `acc.toad_state.*` и `acc.*` |
+| `src/utils/toad_info_parser.py` | Все Python-парсеры (`parse_toad_info`, `parse_my_toad`, `parse_inventory`, `parse_equipment`, `parse_feed`, push-парсеры `parse_arena_battle`/`parse_clan_war`/`parse_gift_received`, `parse_loot_line`, `_LOOT_LINE_RULES`, `load_loot_rules_from_db`) |
+| `src/vk/account_resolver.py` | **PUSH-резолвер** — определение получателя push-сообщений по тегу `[id\|]` / fwd / имени (3 уровня, дедупликация, `name_verified` для алерта) |
+| `src/database/db_manager.py` | Схемы БД, `save_toad_state`, `get_all_accounts`, `_evaluate_recognition_status`, посев правил, CRUD-методы loot_groups/loot_items/command_loot_config |
+| `src/utils/knowledge_base.py` | `ACTION_*` (вкл. `ACTION_ARENA_BATTLE`/`ACTION_CLAN_WAR`/`ACTION_GIFT_RECEIVED`), `PUSH_ACTIONS`, `COMMAND_TRIGGERS`, `RESPONSE_PATTERNS`, `match_bot_response`, вызов `load_loot_rules_from_db` |
+| `src/vk/handlers.py` | Триггеры парсеров (ACTION_INFO/STATS/INVENTORY/EQUIPMENT), PUSH-путь (AccountResolver → спецпарсер → `_deltas`), вызовы save/update |
+| `src/web/server.py` | Эндпоинт `test-parse` со спецеветками для парсеров; API эндпоинты БД «Выпадающий лут» и `command_loot_config` |
+| `src/web/static/app.js` | `SECTION_KEYS`, подвкладки «Распознавание» (control/simple/additive/hybrid), карточка лут-конфигурации (5 полей), рендер UI из `acc.toad_state.*` и `acc.*` |
 | `RECOGNITION_GUIDE.md` | Правила оформления regex-правил и подразделов распознавания |
 | `project_specs.md` | Ограничения: не придумывать команды без указания пользователя |
